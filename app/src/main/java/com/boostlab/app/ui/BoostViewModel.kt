@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.boostlab.app.data.InstalledAppsRepository
 import com.boostlab.app.data.PrivateProfileStore
 import com.boostlab.app.data.PrivateServerProfile
+import com.boostlab.app.boost.GameBoostEngine
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.network.ControlPlaneClient
@@ -38,6 +39,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val controlPlane = ControlPlaneClient()
     private val identityStore = ClientIdentityStore(appContext)
     private val tunnelController = WireGuardTunnelController(appContext)
+    private val gameBoostEngine = GameBoostEngine(appContext)
     private var liveMetricsJob: Job? = null
 
     private val _state = MutableStateFlow(BoostState())
@@ -81,6 +83,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
+        refreshGameReadiness()
+
         viewModelScope.launch {
             restoreTunnelOrRefreshRoute(saved)
         }
@@ -90,9 +94,69 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             selectedApp = app,
+            gameLaunchError = null,
+            gameBoostMessage = "Готов к запуску",
             tunnelError = null,
         )
+        refreshGameReadiness()
         persistProfile()
+    }
+
+    fun boostAndLaunchGame() {
+        val snapshot = _state.value
+        if (snapshot.isGameLaunching) return
+
+        val selectedApp = snapshot.selectedApp
+        if (selectedApp == null) {
+            _state.value = snapshot.copy(
+                gameLaunchError = "Сначала выбери игру",
+                gameBoostMessage = "Игра не выбрана",
+            )
+            return
+        }
+
+        val readiness = gameBoostEngine.inspect()
+        _state.value = snapshot.copy(
+            isGameLaunching = true,
+            gameLaunchError = null,
+            gameBoostMessage = "Подготавливаем запуск…",
+            availableMemoryMb = readiness.availableMemoryMb,
+            deviceLowMemory = readiness.lowMemory,
+            powerSaveMode = readiness.powerSaveMode,
+            thermalStatus = readiness.thermalStatus,
+        )
+
+        gameBoostEngine.launch(selectedApp.packageName)
+            .onSuccess {
+                _state.value = _state.value.copy(
+                    isGameLaunching = false,
+                    gameLaunchError = null,
+                    gameBoostMessage = when {
+                        readiness.lowMemory -> "Игра запущена · мало свободной RAM"
+                        readiness.powerSaveMode -> "Игра запущена · энергосбережение включено"
+                        else -> "Игра запущена"
+                    },
+                )
+            }
+            .onFailure { error ->
+                _state.value = _state.value.copy(
+                    isGameLaunching = false,
+                    gameLaunchError = error.message ?: "Не удалось запустить игру",
+                    gameBoostMessage = "Ошибка запуска",
+                )
+            }
+    }
+
+    fun refreshGameReadiness() {
+        runCatching { gameBoostEngine.inspect() }
+            .onSuccess { readiness ->
+                _state.value = _state.value.copy(
+                    availableMemoryMb = readiness.availableMemoryMb,
+                    deviceLowMemory = readiness.lowMemory,
+                    powerSaveMode = readiness.powerSaveMode,
+                    thermalStatus = readiness.thermalStatus,
+                )
+            }
     }
 
     fun toggleAdvancedSettings() {
@@ -408,7 +472,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 if (tunnelState == Tunnel.State.UP) {
                     startLiveMetrics()
-                    launchSelectedApp()
                 } else {
                     stopLiveMetrics()
                 }
@@ -527,17 +590,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopLiveMetrics() {
         liveMetricsJob?.cancel()
         liveMetricsJob = null
-    }
-
-    private fun launchSelectedApp() {
-        val packageName = _state.value.selectedApp?.packageName ?: return
-        val launchIntent = appContext.packageManager.getLaunchIntentForPackage(packageName)
-            ?: return
-
-        launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        runCatching {
-            appContext.startActivity(launchIntent)
-        }
     }
 
     private fun persistProfile() {
