@@ -17,4 +17,20 @@ data class ClientPolicy(
         PlanTier.FREE -> free
         PlanTier.PREMIUM -> premium
     }
+
+    companion object {
+        fun fallbackFree(): ClientPolicy = ClientPolicy(
+            defaultTier = PlanTier.FREE,
+            free = TierPolicy(
+                adsEnabled = true,
+                maxAutoCandidates = 8,
+                priorityRouting = false,
+            ),
+            premium = TierPolicy(
+                adsEnabled = false,
+                maxAutoCandidates = 8,
+                priorityRouting = true,
+            ),
+        )
+    }
 }
