@@ -18,6 +18,7 @@ data class BoostState(
     val networkTransport: String? = null,
     val gameLaunchMode: GameLaunchMode = GameLaunchMode.SMART,
     val pinnedPackages: Set<String> = emptySet(),
+    val remoteCatalogGames: List<CatalogGame> = emptyList(),
     val autoLaunchAfterNetworkBoost: Boolean = false,
     val confirmStop: Boolean = true,
     val debugLogging: Boolean = false,
