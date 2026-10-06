@@ -34,6 +34,7 @@ import com.boostlab.app.network.UdpRouteProbe
 import com.boostlab.app.tunnel.ClientIdentityStore
 import com.boostlab.app.tunnel.TunnelProfile
 import com.boostlab.app.tunnel.WireGuardTunnelController
+import com.boostlab.app.voice.VoiceIceServer
 import com.boostlab.app.voice.WebRtcVoiceController
 import com.wireguard.android.backend.Tunnel
 import kotlinx.coroutines.Job
@@ -458,30 +459,42 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         if (snapshot.voiceCallState == "RINGING") {
             val sender = pendingVoiceOfferSender ?: return
             val payload = pendingVoiceOfferPayload ?: return
-            _state.value = snapshot.copy(
-                voiceCallState = "CONNECTING",
-                voicePeerId = sender,
-                voiceError = null,
-            )
-            runCatching {
-                voiceController.acceptIncoming(
-                    localUserId = snapshot.localUserId,
-                    peerUserId = sender,
-                    offerPayload = payload,
-                    signalSink = signalSink,
-                    stateSink = stateSink,
-                )
-                pendingIncomingVoiceIce
-                    .filter { it.first == sender }
-                    .forEach { (_, icePayload) ->
-                        voiceController.handleSignal(sender, "voice_ice", icePayload)
-                    }
-                pendingIncomingVoiceIce.clear()
-            }.onFailure { error ->
+
+            viewModelScope.launch {
+                val iceServers = loadVoiceIceServers(snapshot.controlPlaneUrl)
+                if (
+                    _state.value.voiceCallState != "RINGING" ||
+                    pendingVoiceOfferSender != sender
+                ) {
+                    return@launch
+                }
+
                 _state.value = _state.value.copy(
-                    voiceCallState = "FAILED",
-                    voiceError = error.message ?: "Не удалось принять звонок",
+                    voiceCallState = "CONNECTING",
+                    voicePeerId = sender,
+                    voiceError = null,
                 )
+                runCatching {
+                    voiceController.acceptIncoming(
+                        localUserId = snapshot.localUserId,
+                        peerUserId = sender,
+                        offerPayload = payload,
+                        iceServers = iceServers,
+                        signalSink = signalSink,
+                        stateSink = stateSink,
+                    )
+                    pendingIncomingVoiceIce
+                        .filter { it.first == sender }
+                        .forEach { (_, icePayload) ->
+                            voiceController.handleSignal(sender, "voice_ice", icePayload)
+                        }
+                    pendingIncomingVoiceIce.clear()
+                }.onFailure { error ->
+                    _state.value = _state.value.copy(
+                        voiceCallState = "FAILED",
+                        voiceError = error.message ?: "Не удалось принять звонок",
+                    )
+                }
             }
             return
         }
@@ -502,18 +515,26 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             voiceMuted = false,
             voiceError = null,
         )
-        runCatching {
-            voiceController.startOutgoing(
-                localUserId = snapshot.localUserId,
-                peerUserId = peer,
-                signalSink = signalSink,
-                stateSink = stateSink,
-            )
-        }.onFailure { error ->
-            _state.value = _state.value.copy(
-                voiceCallState = "FAILED",
-                voiceError = error.message ?: "Не удалось начать звонок",
-            )
+        viewModelScope.launch {
+            val iceServers = loadVoiceIceServers(snapshot.controlPlaneUrl)
+            if (_state.value.voiceCallState != "CALLING" || _state.value.voicePeerId != peer) {
+                return@launch
+            }
+
+            runCatching {
+                voiceController.startOutgoing(
+                    localUserId = snapshot.localUserId,
+                    peerUserId = peer,
+                    iceServers = iceServers,
+                    signalSink = signalSink,
+                    stateSink = stateSink,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    voiceCallState = "FAILED",
+                    voiceError = error.message ?: "Не удалось начать звонок",
+                )
+            }
         }
     }
 
@@ -1257,6 +1278,27 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopLiveMetrics() {
         liveMetricsJob?.cancel()
         liveMetricsJob = null
+    }
+
+    private suspend fun loadVoiceIceServers(baseUrl: String): List<VoiceIceServer> {
+        return runCatching {
+            squadApi.fetchVoiceIce(baseUrl).map { remote ->
+                VoiceIceServer(
+                    urls = remote.urls,
+                    username = remote.username,
+                    credential = remote.credential,
+                )
+            }
+        }.getOrElse {
+            listOf(
+                VoiceIceServer(
+                    urls = listOf(
+                        "stun:stun.l.google.com:19302",
+                        "stun:stun1.l.google.com:19302",
+                    ),
+                ),
+            )
+        }
     }
 
     private fun handleIncomingVoiceEvent(sender: String, type: String, payload: String) {
