@@ -32,8 +32,12 @@ class SquadApiClient {
         sendEvent(baseUrl, code, sender, "chat", text, "")
 
 
-    suspend fun fetchVoiceIce(baseUrl: String): List<RemoteIceServer> = withContext(Dispatchers.IO) {
-        val connection = open("${normalizeBaseUrl(baseUrl)}/v1/voice/ice", "GET")
+    suspend fun fetchVoiceIce(baseUrl: String, userId: String): List<RemoteIceServer> = withContext(Dispatchers.IO) {
+        val encodedUserId = java.net.URLEncoder.encode(userId.trim(), Charsets.UTF_8.name())
+        val connection = open(
+            "${normalizeBaseUrl(baseUrl)}/v1/voice/ice?user_id=$encodedUserId",
+            "GET",
+        )
         try {
             require(connection.responseCode == HttpURLConnection.HTTP_OK) {
                 "Voice ICE HTTP ${connection.responseCode}"
