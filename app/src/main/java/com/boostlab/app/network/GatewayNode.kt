@@ -5,6 +5,7 @@ data class GatewayNode(
     val region: String,
     val host: String,
     val udpPort: Int,
+    val routeApiUrl: String? = null,
     val wireGuardPublicKey: String?,
     val wireGuardPort: Int?,
     val healthy: Boolean,
