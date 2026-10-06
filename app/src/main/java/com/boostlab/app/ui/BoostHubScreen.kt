@@ -277,6 +277,63 @@ private fun BoostPage(
         item { NetworkHero(state) }
         item {
             Panel {
+                Text("Route Intelligence", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(
+                    when (state.routeRecommendation) {
+                        "BOOST" -> "BOOST даёт лучший маршрут"
+                        "DIRECT" -> "DIRECT уже быстрее — VPN не нужен"
+                        "GATEWAY_ONLY" -> "Пока оцениваем только доступ до Gateway"
+                        else -> "Выбери игру и запусти авто-проверку маршрута"
+                    },
+                    color = when (state.routeRecommendation) {
+                        "BOOST" -> HubMint
+                        "DIRECT" -> HubCyan
+                        else -> HubMuted
+                    },
+                    fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricBox(
+                        "DIRECT",
+                        state.directPingMs?.let { "$it ms" } ?: "—",
+                        Modifier.weight(1f),
+                    )
+                    MetricBox(
+                        "BOOST",
+                        state.boostedEstimatedPingMs?.let { "$it ms" } ?: "—",
+                        Modifier.weight(1f),
+                    )
+                    MetricBox(
+                        "ВЫИГРЫШ",
+                        state.routeGainMs?.let {
+                            when {
+                                it > 0 -> "−$it ms"
+                                it < 0 -> "+${-it} ms"
+                                else -> "0 ms"
+                            }
+                        } ?: "—",
+                        Modifier.weight(1f),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "p95: Direct ${state.directP95Ms?.let { "$it ms" } ?: "—"} · " +
+                        "Boost ${state.boostedEstimatedP95Ms?.let { "$it ms" } ?: "—"}",
+                    color = HubMuted,
+                    fontSize = 11.sp,
+                )
+                Text(
+                    "Target: ${state.routeTargetId ?: "не задан"} · проверено маршрутов: ${state.routeCandidatesTested}",
+                    color = HubMuted,
+                    fontSize = 10.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        item {
+            Panel {
                 Text("Режим ускорения", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -315,13 +372,15 @@ private fun BoostPage(
                                 if (state.confirmStop) confirmDisconnect = true else viewModel.disconnectTunnel()
                             } else onRequestVpnPermission()
                         },
-                        enabled = !state.isTunnelConnecting,
+                        enabled = !state.isTunnelConnecting &&
+                            !(state.routeRecommendation == "DIRECT" && state.autoSelectBestNode),
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(
                             when {
                                 state.isTunnelConnecting -> "Подключаем…"
                                 state.isBoosting -> "Отключить"
+                                state.routeRecommendation == "DIRECT" && state.autoSelectBestNode -> "DIRECT лучший"
                                 else -> "Включить VPN"
                             },
                         )
@@ -331,7 +390,7 @@ private fun BoostPage(
                         enabled = !state.isBoosting && !state.isTunnelConnecting && !state.isAutoSelecting,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Text(if (state.isAutoSelecting) "Ищем…" else "Авто-сервер")
+                        Text(if (state.isAutoSelecting) "Сравниваем…" else "Лучший маршрут")
                     }
                 }
                 if (state.isBoosting) {
@@ -377,6 +436,17 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricBox("P95", state.p95PingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                MetricBox("DIRECT", state.directPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                MetricBox(
+                    "GAIN",
+                    state.routeGainMs?.let { if (it > 0) "−$it ms" else "$it ms" } ?: "—",
+                    Modifier.weight(1f),
+                )
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricBox("RAM", state.availableMemoryPercent?.let { "$it%" } ?: "—", Modifier.weight(1f))
                 MetricBox("НАГРЕВ", thermalLabel(state.thermalStatus), Modifier.weight(1f))
                 MetricBox("СЕТЬ", state.networkTransport ?: "—", Modifier.weight(1f))
@@ -396,7 +466,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     state.isBoosting -> "Handshake есть · ждём трафик игры"
                     else -> "Проверка игрового трафика выключена"
                 },
-                "RX/TX — фактические байты WireGuard выбранной игры. Ping/Jitter/Loss — измерения gateway, а не обещанный FPS.",
+                "RX/TX — фактические байты WireGuard выбранной игры. При наличии игрового target Ping/P95/Jitter/Loss считаются для полного маршрута телефон → Gateway → игра.",
             )
         }
         item {
