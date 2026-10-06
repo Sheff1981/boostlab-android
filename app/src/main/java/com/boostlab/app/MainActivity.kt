@@ -25,12 +25,26 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        handleDeepLink(intent)
 
         setContent {
             BoostHubScreen(
                 viewModel = viewModel,
                 onRequestVpnPermission = ::requestVpnPermission,
             )
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme == "boostlab" && data.host == "squad") {
+            data.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() }?.let(viewModel::joinSquad)
         }
     }
 
