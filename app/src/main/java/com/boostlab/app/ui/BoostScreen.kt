@@ -378,6 +378,31 @@ private fun HeroNetworkSection() {
                 .alpha(0.98f),
         )
 
+        RegionChip(
+            label = "EU",
+            value = "12 ms",
+            color = Cyan,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 18.dp, end = 112.dp),
+        )
+        RegionChip(
+            label = "AS",
+            value = "28 ms",
+            color = Magenta,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 62.dp, end = 14.dp),
+        )
+        RegionChip(
+            label = "US",
+            value = "46 ms",
+            color = Blue,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(bottom = 22.dp, end = 126.dp),
+        )
+
         Column(
             modifier = Modifier
                 .align(Alignment.CenterStart)
@@ -561,16 +586,27 @@ private fun NetworkGlobe(
             center = center,
             style = Stroke(width = 1.6.dp.toPx()),
         )
-    }
 
-    Box(
-        modifier = Modifier
-            .padding(top = 24.dp, end = 124.dp),
-    ) {
-        RegionChip(
-            label = "EU",
-            value = "12 ms",
+        drawLine(
             color = Cyan,
+            start = Offset(center.x - 13.dp.toPx(), center.y - 11.dp.toPx()),
+            end = Offset(center.x + 10.dp.toPx(), center.y - 4.dp.toPx()),
+            strokeWidth = 5.dp.toPx(),
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = Blue,
+            start = Offset(center.x + 10.dp.toPx(), center.y - 4.dp.toPx()),
+            end = Offset(center.x - 1.dp.toPx(), center.y + 14.dp.toPx()),
+            strokeWidth = 5.dp.toPx(),
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = Violet,
+            start = Offset(center.x - 1.dp.toPx(), center.y + 14.dp.toPx()),
+            end = Offset(center.x - 10.dp.toPx(), center.y + 3.dp.toPx()),
+            strokeWidth = 4.dp.toPx(),
+            cap = StrokeCap.Round,
         )
     }
 }
@@ -580,9 +616,10 @@ private fun RegionChip(
     label: String,
     value: String,
     color: Color,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .clip(RoundedCornerShape(14.dp))
             .background(Color(0xE70B1E39))
             .border(1.dp, color.copy(alpha = 0.85f), RoundedCornerShape(14.dp))
