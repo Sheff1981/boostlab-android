@@ -107,6 +107,13 @@ private val ScreenGradient = Brush.verticalGradient(
     ),
 )
 
+private enum class HomeTab {
+    GAMES,
+    BOOST,
+    STATS,
+    PROFILE,
+}
+
 @Composable
 fun BoostScreen(
     viewModel: BoostViewModel,
@@ -114,6 +121,10 @@ fun BoostScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
+    var selectedTabName by rememberSaveable { mutableStateOf(HomeTab.BOOST.name) }
+    val selectedTab = runCatching {
+        HomeTab.valueOf(selectedTabName)
+    }.getOrDefault(HomeTab.BOOST)
 
     val filteredApps = remember(viewModel.apps, query) {
         if (query.isBlank()) {
@@ -141,7 +152,12 @@ fun BoostScreen(
         ) {
             Scaffold(
                 containerColor = Color.Transparent,
-                bottomBar = { BoostBottomBar() },
+                bottomBar = {
+                    BoostBottomBar(
+                        selectedTab = selectedTab,
+                        onTabSelected = { selectedTabName = it.name },
+                    )
+                },
             ) { scaffoldPadding ->
                 LazyColumn(
                     modifier = Modifier
@@ -158,63 +174,125 @@ fun BoostScreen(
                 ) {
                     item {
                         BrandHeader(
-                            onSettingsClick = viewModel::toggleAdvancedSettings,
-                        )
-                    }
-
-                    item {
-                        HeroNetworkSection()
-                    }
-
-                    item {
-                        SelectedGameCard(
-                            state = state,
-                            onBoostClick = {
-                                if (state.isBoosting) {
-                                    viewModel.disconnectTunnel()
-                                } else {
-                                    onRequestVpnPermission()
-                                }
+                            onSettingsClick = {
+                                viewModel.toggleAdvancedSettings()
+                                selectedTabName = HomeTab.PROFILE.name
                             },
                         )
                     }
 
-                    item {
-                        MetricsRow(state)
-                    }
+                    when (selectedTab) {
+                        HomeTab.BOOST -> {
+                            item {
+                                HeroNetworkSection()
+                            }
 
-                    item {
-                        GamePickerHeader(
-                            query = query,
-                            onQueryChange = { query = it },
-                        )
-                    }
+                            item {
+                                SelectedGameCard(
+                                    state = state,
+                                    onBoostClick = {
+                                        if (state.isBoosting) {
+                                            viewModel.disconnectTunnel()
+                                        } else {
+                                            onRequestVpnPermission()
+                                        }
+                                    },
+                                )
+                            }
 
-                    items(filteredApps, key = { it.packageName }) { app ->
-                        GameRow(
-                            app = app,
-                            selected = state.selectedApp?.packageName == app.packageName,
-                            onClick = { viewModel.selectApp(app) },
-                        )
-                    }
+                            item {
+                                MetricsRow(state)
+                            }
 
-                    item {
-                        ServerSettingsButton(
-                            expanded = state.showAdvancedSettings,
-                            onClick = viewModel::toggleAdvancedSettings,
-                        )
-                    }
+                            item {
+                                GamePickerHeader(
+                                    query = query,
+                                    onQueryChange = { query = it },
+                                )
+                            }
 
-                    item {
-                        AnimatedVisibility(
-                            visible = state.showAdvancedSettings,
-                            enter = fadeIn(tween(220)) + expandVertically(tween(260)),
-                            exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
-                        ) {
-                            AdvancedServerCard(
-                                state = state,
-                                viewModel = viewModel,
-                            )
+                            items(filteredApps.take(4), key = { it.packageName }) { app ->
+                                GameRow(
+                                    app = app,
+                                    selected = state.selectedApp?.packageName == app.packageName,
+                                    onClick = { viewModel.selectApp(app) },
+                                )
+                            }
+
+                            item {
+                                ServerSettingsButton(
+                                    expanded = state.showAdvancedSettings,
+                                    onClick = {
+                                        viewModel.toggleAdvancedSettings()
+                                        selectedTabName = HomeTab.PROFILE.name
+                                    },
+                                )
+                            }
+                        }
+
+                        HomeTab.GAMES -> {
+                            item {
+                                Text(
+                                    text = "Игры",
+                                    color = Color.White,
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Black,
+                                )
+                            }
+
+                            item {
+                                GamePickerHeader(
+                                    query = query,
+                                    onQueryChange = { query = it },
+                                )
+                            }
+
+                            items(filteredApps, key = { it.packageName }) { app ->
+                                GameRow(
+                                    app = app,
+                                    selected = state.selectedApp?.packageName == app.packageName,
+                                    onClick = {
+                                        viewModel.selectApp(app)
+                                        selectedTabName = HomeTab.BOOST.name
+                                    },
+                                )
+                            }
+                        }
+
+                        HomeTab.STATS -> {
+                            item {
+                                StatsOverviewCard(state)
+                            }
+                            item {
+                                MetricsRow(state)
+                            }
+                            item {
+                                RouteStatusCard(state)
+                            }
+                        }
+
+                        HomeTab.PROFILE -> {
+                            item {
+                                PrivateProfileCard(state)
+                            }
+                            item {
+                                ServerSettingsButton(
+                                    expanded = state.showAdvancedSettings,
+                                    onClick = viewModel::toggleAdvancedSettings,
+                                )
+                            }
+                            item {
+                                AnimatedVisibility(
+                                    visible = state.showAdvancedSettings,
+                                    enter = fadeIn(tween(220)) + expandVertically(tween(260)),
+                                    exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
+                                ) {
+                                    AdvancedServerCard(
+                                        state = state,
+                                        viewModel = viewModel,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
