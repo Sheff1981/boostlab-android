@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
@@ -35,6 +36,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        viewModel.onNotificationPermissionResult(granted)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -45,6 +52,7 @@ class MainActivity : ComponentActivity() {
                 viewModel = viewModel,
                 onRequestVpnPermission = ::requestVpnPermission,
                 onRequestAudioPermission = ::requestAudioPermission,
+                onRequestNotificationPermission = ::requestNotificationPermission,
             )
         }
     }
@@ -59,6 +67,21 @@ class MainActivity : ComponentActivity() {
         val data = intent?.data ?: return
         if (data.scheme == "boostlab" && data.host == "squad") {
             data.pathSegments.firstOrNull()?.takeIf { it.isNotBlank() }?.let(viewModel::joinSquad)
+        }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            viewModel.onNotificationPermissionResult(true)
+            return
+        }
+        if (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            viewModel.onNotificationPermissionResult(true)
+        } else {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
