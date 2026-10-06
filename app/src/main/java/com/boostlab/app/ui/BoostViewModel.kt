@@ -8,6 +8,8 @@ import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.GatewayMeasurement
+import com.boostlab.app.network.GatewayNode
+import com.boostlab.app.network.LanGatewayDiscovery
 import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.UdpRouteProbe
@@ -27,6 +29,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val repository = InstalledAppsRepository(appContext)
     private val routeProbe = UdpRouteProbe()
+    private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
     private val identityStore = ClientIdentityStore(appContext)
     private val tunnelController = WireGuardTunnelController(appContext)
@@ -95,6 +98,83 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             dnsServer = value.trim(),
             tunnelError = null,
         )
+    }
+
+    fun discoverLanGateway() {
+        val current = _state.value
+        if (current.isLanDiscovering || current.isAutoSelecting || current.isProbing) return
+
+        _state.value = current.copy(
+            isLanDiscovering = true,
+            lanGatewayCount = 0,
+            probeError = null,
+            serverLabel = "Ищем BOOSTLAB в локальной сети…",
+        )
+
+        viewModelScope.launch {
+            runCatching {
+                val hosts = lanDiscovery.discover()
+                if (hosts.isEmpty()) {
+                    error("BOOSTLAB gateway в локальной сети не найден")
+                }
+
+                _state.value = _state.value.copy(
+                    lanGatewayCount = hosts.size,
+                    serverLabel = "Найдено локальных серверов: ${hosts.size}",
+                )
+
+                val measurements = coroutineScope {
+                    hosts.map { host ->
+                        async {
+                            runCatching {
+                                val metrics = routeProbe.measure(
+                                    host = host,
+                                    port = UdpRouteProbe.DEFAULT_PORT,
+                                    samples = LAN_AUTO_SAMPLES,
+                                )
+                                GatewayMeasurement(
+                                    node = GatewayNode(
+                                        id = "lan-$host",
+                                        region = "LAN",
+                                        host = host,
+                                        udpPort = UdpRouteProbe.DEFAULT_PORT,
+                                        wireGuardPublicKey = null,
+                                        wireGuardPort = null,
+                                        healthy = true,
+                                    ),
+                                    metrics = metrics,
+                                    score = RouteScorer.score(metrics),
+                                )
+                            }.getOrNull()
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+
+                measurements
+                    .filter { it.metrics.received > 0 && it.score.isFinite() }
+                    .minByOrNull { it.score }
+                    ?: error("Локальный gateway найден, но не отвечает на измерения")
+            }.onSuccess { best ->
+                _state.value = _state.value.copy(
+                    isLanDiscovering = false,
+                    gatewayHost = best.node.host,
+                    gatewayPort = best.node.udpPort,
+                    selectedGatewayId = best.node.id,
+                    selectedGatewayRegion = best.node.region,
+                    pingMs = best.metrics.medianRttMs,
+                    jitterMs = best.metrics.jitterMs,
+                    packetLossPct = best.metrics.packetLossPct,
+                    serverLabel = "Локальный gateway: ${best.node.host}",
+                    probeError = null,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    isLanDiscovering = false,
+                    serverLabel = "Локальный сервер не найден",
+                    probeError = error.message ?: "Ошибка локального поиска",
+                )
+            }
+        }
     }
 
     fun autoSelectGateway() {
@@ -308,5 +388,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val MAX_AUTO_NODES = 8
         private const val AUTO_SAMPLES = 6
+        private const val LAN_AUTO_SAMPLES = 4
     }
 }
