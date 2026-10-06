@@ -34,6 +34,7 @@ import com.boostlab.app.network.UdpRouteProbe
 import com.boostlab.app.tunnel.ClientIdentityStore
 import com.boostlab.app.tunnel.TunnelProfile
 import com.boostlab.app.tunnel.WireGuardTunnelController
+import com.boostlab.app.voice.WebRtcVoiceController
 import com.wireguard.android.backend.Tunnel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
@@ -63,9 +65,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val identityStore = ClientIdentityStore(appContext)
     private val tunnelController = WireGuardTunnelController(appContext)
     private val gameBoostEngine = GameBoostEngine(appContext)
+    private val voiceController = WebRtcVoiceController(appContext)
     private var liveMetricsJob: Job? = null
     private var squadSyncJob: Job? = null
     private var squadLastEventId = 0L
+    private var pendingVoiceOfferSender: String? = null
+    private var pendingVoiceOfferPayload: String? = null
     private var trafficBaselineRx = 0L
     private var trafficBaselineTx = 0L
 
@@ -410,6 +415,125 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     debugLog("Не удалось обновить каталог игр: ${error::class.java.simpleName}")
                 }
         }
+    }
+
+
+    fun startOrAcceptVoiceCall() {
+        val snapshot = _state.value
+        val code = snapshot.squadCode ?: return
+        if (!snapshot.controlPlaneUrl.startsWith("https://")) {
+            _state.value = snapshot.copy(voiceError = "Для звонка нужен Control API HTTPS")
+            return
+        }
+
+        val stateSink: (String, String?) -> Unit = { state, error ->
+            _state.value = _state.value.copy(
+                voiceCallState = state,
+                voiceError = error,
+                voicePeerId = if (state == "IDLE") null else _state.value.voicePeerId,
+                voiceMuted = if (state == "IDLE") false else _state.value.voiceMuted,
+            )
+            if (state == "IDLE") {
+                pendingVoiceOfferSender = null
+                pendingVoiceOfferPayload = null
+            }
+        }
+        val signalSink: (String, String) -> Unit = { type, payload ->
+            sendVoiceSignal(type, payload)
+        }
+
+        if (snapshot.voiceCallState == "RINGING") {
+            val sender = pendingVoiceOfferSender ?: return
+            val payload = pendingVoiceOfferPayload ?: return
+            _state.value = snapshot.copy(
+                voiceCallState = "CONNECTING",
+                voicePeerId = sender,
+                voiceError = null,
+            )
+            runCatching {
+                voiceController.acceptIncoming(
+                    localUserId = snapshot.localUserId,
+                    peerUserId = sender,
+                    offerPayload = payload,
+                    signalSink = signalSink,
+                    stateSink = stateSink,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    voiceCallState = "FAILED",
+                    voiceError = error.message ?: "Не удалось принять звонок",
+                )
+            }
+            return
+        }
+
+        if (snapshot.voiceCallState !in setOf("IDLE", "FAILED")) return
+        val peer = snapshot.squadOnlineUsers.firstOrNull { it != snapshot.localUserId }
+        if (peer == null) {
+            _state.value = snapshot.copy(voiceError = "В отряде сейчас нет второго участника онлайн")
+            return
+        }
+
+        pendingVoiceOfferSender = null
+        pendingVoiceOfferPayload = null
+        _state.value = snapshot.copy(
+            voiceCallState = "CALLING",
+            voicePeerId = peer,
+            voiceMuted = false,
+            voiceError = null,
+        )
+        runCatching {
+            voiceController.startOutgoing(
+                localUserId = snapshot.localUserId,
+                peerUserId = peer,
+                signalSink = signalSink,
+                stateSink = stateSink,
+            )
+        }.onFailure { error ->
+            _state.value = _state.value.copy(
+                voiceCallState = "FAILED",
+                voiceError = error.message ?: "Не удалось начать звонок",
+            )
+        }
+    }
+
+    fun rejectVoiceCall() {
+        val sender = pendingVoiceOfferSender
+        if (sender != null) {
+            val payload = JSONObject().put("target", sender).toString()
+            sendVoiceSignal("voice_hangup", payload)
+        }
+        pendingVoiceOfferSender = null
+        pendingVoiceOfferPayload = null
+        _state.value = _state.value.copy(
+            voiceCallState = "IDLE",
+            voicePeerId = null,
+            voiceMuted = false,
+            voiceError = null,
+        )
+    }
+
+    fun hangupVoiceCall() {
+        voiceController.hangup()
+        pendingVoiceOfferSender = null
+        pendingVoiceOfferPayload = null
+        _state.value = _state.value.copy(
+            voiceCallState = "IDLE",
+            voicePeerId = null,
+            voiceMuted = false,
+        )
+    }
+
+    fun toggleVoiceMute() {
+        val muted = !_state.value.voiceMuted
+        voiceController.setMuted(muted)
+        _state.value = _state.value.copy(voiceMuted = muted)
+    }
+
+    fun onVoicePermissionDenied() {
+        _state.value = _state.value.copy(
+            voiceError = "Без разрешения на микрофон голосовой звонок не работает",
+        )
     }
 
     fun openStoreSearch(query: String) {
@@ -1113,6 +1237,44 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         liveMetricsJob = null
     }
 
+    private fun handleIncomingVoiceEvent(sender: String, type: String, payload: String) {
+        if (sender == _state.value.localUserId) return
+
+        val target = runCatching { JSONObject(payload).optString("target") }.getOrDefault("")
+        if (target.isNotBlank() && target != _state.value.localUserId) return
+
+        when (type) {
+            "voice_offer" -> {
+                if (_state.value.voiceCallState in setOf("IDLE", "FAILED")) {
+                    pendingVoiceOfferSender = sender
+                    pendingVoiceOfferPayload = payload
+                    _state.value = _state.value.copy(
+                        voiceCallState = "RINGING",
+                        voicePeerId = sender,
+                        voiceMuted = false,
+                        voiceError = null,
+                    )
+                    addEvent("Voice", "Входящий звонок от $sender")
+                }
+            }
+            "voice_hangup" -> {
+                if (_state.value.voiceCallState == "RINGING" && pendingVoiceOfferSender == sender) {
+                    pendingVoiceOfferSender = null
+                    pendingVoiceOfferPayload = null
+                    _state.value = _state.value.copy(
+                        voiceCallState = "IDLE",
+                        voicePeerId = null,
+                        voiceMuted = false,
+                        voiceError = null,
+                    )
+                } else {
+                    voiceController.handleSignal(sender, type, payload)
+                }
+            }
+            "voice_answer", "voice_ice" -> voiceController.handleSignal(sender, type, payload)
+        }
+    }
+
     private fun startSquadSync(resetCursor: Boolean = false) {
         squadSyncJob?.cancel()
         squadSyncJob = null
@@ -1149,6 +1311,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     if (events.isNotEmpty()) {
                         squadLastEventId = maxOf(squadLastEventId, events.maxOf { it.id })
                     }
+                    events
+                        .filter { it.type.startsWith("voice_") }
+                        .forEach { handleIncomingVoiceEvent(it.sender, it.type, it.payload) }
+
                     val chats = events
                         .filter { it.type == "chat" && it.text.isNotBlank() }
                         .map {
@@ -1249,6 +1415,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         squadSyncJob?.cancel()
         liveMetricsJob?.cancel()
+        voiceController.release()
         super.onCleared()
     }
 
