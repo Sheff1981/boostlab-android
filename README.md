@@ -53,3 +53,22 @@ These are operational/public connection settings. The Android WireGuard private 
 - Official WireGuard Android tunnel library.
 
 > BOOSTLAB is a working codename. No third-party branding or implementation is copied.
+
+
+## Preconfigured friend APK
+
+The Android build can be prepared with the server profile already embedded so the friend does not need to enter technical values manually.
+
+Supported build environment variables:
+
+- `BOOSTLAB_DEFAULT_CONTROL_URL`
+- `BOOSTLAB_DEFAULT_GATEWAY_HOST`
+- `BOOSTLAB_DEFAULT_GATEWAY_PORT`
+- `BOOSTLAB_DEFAULT_WG_PUBLIC_KEY`
+- `BOOSTLAB_DEFAULT_WG_PORT`
+- `BOOSTLAB_DEFAULT_TUNNEL_ADDRESS`
+- `BOOSTLAB_DEFAULT_DNS_SERVER`
+
+These values contain connection metadata and a WireGuard **public** key only. Never put a client or server private key into these variables.
+
+If no build defaults are supplied, the advanced settings screen remains available for one-time manual setup.
