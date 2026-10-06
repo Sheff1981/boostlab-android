@@ -983,6 +983,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     selectedGatewayId = best.node.id,
                     selectedGatewayRegion = best.node.region,
                     pingMs = best.metrics.medianRttMs,
+                    p95PingMs = best.metrics.p95RttMs,
                     jitterMs = best.metrics.jitterMs,
                     packetLossPct = best.metrics.packetLossPct,
                     serverLabel = "Локальный gateway: ${best.node.host}",
@@ -1344,6 +1345,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 _state.value = _state.value.copy(
                     isProbing = false,
                     pingMs = metrics.medianRttMs,
+                    p95PingMs = metrics.p95RttMs,
                     jitterMs = metrics.jitterMs,
                     packetLossPct = metrics.packetLossPct,
                     serverLabel = if (metrics.received > 0) {
@@ -1357,6 +1359,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 _state.value = _state.value.copy(
                     isProbing = false,
                     pingMs = null,
+                    p95PingMs = null,
                     jitterMs = null,
                     packetLossPct = null,
                     serverLabel = "Проверка не удалась",
