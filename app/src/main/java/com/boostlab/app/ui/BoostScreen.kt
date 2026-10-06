@@ -184,7 +184,7 @@ fun BoostScreen(
                     when (selectedTab) {
                         HomeTab.BOOST -> {
                             item {
-                                HeroNetworkSection()
+                                HeroNetworkSection(state = state)
                             }
 
                             item {
@@ -401,7 +401,9 @@ private fun BoostLabMark(
 }
 
 @Composable
-private fun HeroNetworkSection() {
+private fun HeroNetworkSection(
+    state: BoostState,
+) {
     val motion = rememberInfiniteTransition(label = "hero-network")
     val globeRotation by motion.animateFloat(
         initialValue = -4f,
@@ -456,25 +458,41 @@ private fun HeroNetworkSection() {
                 .alpha(0.98f),
         )
 
+        val regionLabel = state.selectedGatewayRegion
+            ?.takeIf { it.isNotBlank() }
+            ?.uppercase(Locale.getDefault())
+            ?.take(8)
+            ?: if (state.gatewayHost.isNotBlank()) "CUSTOM" else "AUTO"
+        val pingValue = when {
+            state.isAutoSelecting -> "поиск…"
+            state.isProbing -> "проверка…"
+            state.pingMs != null -> "${state.pingMs} ms"
+            else -> "—"
+        }
+        val jitterValue = state.jitterMs?.let { "$it ms" } ?: "—"
+        val lossValue = state.packetLossPct
+            ?.let { String.format(Locale.US, "%.1f%%", it) }
+            ?: "—"
+
         RegionChip(
-            label = "EU",
-            value = "12 ms",
-            color = Cyan,
+            label = regionLabel,
+            value = pingValue,
+            color = if (state.isBoosting) Mint else Cyan,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 18.dp, end = 112.dp),
         )
         RegionChip(
-            label = "AS",
-            value = "28 ms",
+            label = "JITTER",
+            value = jitterValue,
             color = Magenta,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 62.dp, end = 14.dp),
         )
         RegionChip(
-            label = "US",
-            value = "46 ms",
+            label = "LOSS",
+            value = lossValue,
             color = Blue,
             modifier = Modifier
                 .align(Alignment.BottomEnd)
