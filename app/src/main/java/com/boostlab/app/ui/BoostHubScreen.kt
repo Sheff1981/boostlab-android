@@ -187,7 +187,11 @@ private fun GamesPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CatalogTab.entries.forEach { c ->
                     SelectChip(
-                        text = c.name.lowercase().replaceFirstChar { ch -> ch.titlecase(Locale.getDefault()) },
+                        text = when (c) {
+                            CatalogTab.HOT -> "Hot"
+                            CatalogTab.NEW -> "New"
+                            CatalogTab.ALL -> "All"
+                        },
                         selected = c == catalogTab,
                         onClick = { catalogTabName = c.name },
                     )
