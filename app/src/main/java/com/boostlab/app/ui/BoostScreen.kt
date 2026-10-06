@@ -1,5 +1,17 @@
 package com.boostlab.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -18,6 +30,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -62,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -132,7 +146,8 @@ fun BoostScreen(
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(scaffoldPadding),
+                        .padding(scaffoldPadding)
+                        .statusBarsPadding(),
                     contentPadding = PaddingValues(
                         start = 16.dp,
                         end = 16.dp,
@@ -190,8 +205,12 @@ fun BoostScreen(
                         )
                     }
 
-                    if (state.showAdvancedSettings) {
-                        item {
+                    item {
+                        AnimatedVisibility(
+                            visible = state.showAdvancedSettings,
+                            enter = fadeIn(tween(220)) + expandVertically(tween(260)),
+                            exit = fadeOut(tween(160)) + shrinkVertically(tween(220)),
+                        ) {
                             AdvancedServerCard(
                                 state = state,
                                 viewModel = viewModel,
@@ -305,6 +324,26 @@ private fun BoostLabMark(
 
 @Composable
 private fun HeroNetworkSection() {
+    val motion = rememberInfiniteTransition(label = "hero-network")
+    val globeRotation by motion.animateFloat(
+        initialValue = -4f,
+        targetValue = 4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(5_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "globe-rotation",
+    )
+    val globePulse by motion.animateFloat(
+        initialValue = 0.985f,
+        targetValue = 1.025f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2_200),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "globe-pulse",
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -331,6 +370,11 @@ private fun HeroNetworkSection() {
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .size(228.dp)
+                .graphicsLayer {
+                    rotationZ = globeRotation
+                    scaleX = globePulse
+                    scaleY = globePulse
+                }
                 .alpha(0.98f),
         )
 
@@ -592,6 +636,7 @@ private fun SelectedGameCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize()
             .shadow(24.dp, RoundedCornerShape(28.dp))
             .clip(RoundedCornerShape(28.dp))
             .background(
@@ -737,6 +782,16 @@ private fun GradientBoostButton(
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(28.dp)
+    val pulseTransition = rememberInfiniteTransition(label = "boost-button")
+    val pulse by pulseTransition.animateFloat(
+        initialValue = 0.992f,
+        targetValue = 1.012f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1_350),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "boost-pulse",
+    )
     val gradient = if (active) {
         Brush.horizontalGradient(listOf(Violet, Magenta))
     } else {
@@ -747,6 +802,11 @@ private fun GradientBoostButton(
         modifier = Modifier
             .fillMaxWidth()
             .height(62.dp)
+            .graphicsLayer {
+                val animatedScale = if (enabled) pulse else 1f
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
             .alpha(if (enabled) 1f else 0.45f)
             .shadow(20.dp, shape)
             .clip(shape)
@@ -922,6 +982,7 @@ private fun GameRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .animateContentSize()
             .shadow(if (selected) 18.dp else 0.dp, shape)
             .clip(shape)
             .background(
