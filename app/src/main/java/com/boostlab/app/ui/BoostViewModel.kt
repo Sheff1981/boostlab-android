@@ -71,6 +71,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private var squadLastEventId = 0L
     private var pendingVoiceOfferSender: String? = null
     private var pendingVoiceOfferPayload: String? = null
+    private val pendingIncomingVoiceIce = mutableListOf<String>()
     private var trafficBaselineRx = 0L
     private var trafficBaselineTx = 0L
 
@@ -297,6 +298,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leaveSquad() {
+        if (_state.value.voiceCallState !in setOf("IDLE", "FAILED")) {
+            voiceController.hangup()
+        }
+        pendingVoiceOfferSender = null
+        pendingVoiceOfferPayload = null
+        pendingIncomingVoiceIce.clear()
         squadSyncJob?.cancel()
         squadSyncJob = null
         squadLastEventId = 0L
@@ -420,7 +427,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startOrAcceptVoiceCall() {
         val snapshot = _state.value
-        val code = snapshot.squadCode ?: return
+        if (snapshot.squadCode == null) return
         if (!snapshot.controlPlaneUrl.startsWith("https://")) {
             _state.value = snapshot.copy(voiceError = "Для звонка нужен Control API HTTPS")
             return
@@ -458,6 +465,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     signalSink = signalSink,
                     stateSink = stateSink,
                 )
+                pendingIncomingVoiceIce.forEach { icePayload ->
+                    voiceController.handleSignal(sender, "voice_ice", icePayload)
+                }
+                pendingIncomingVoiceIce.clear()
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     voiceCallState = "FAILED",
@@ -505,6 +516,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
         pendingVoiceOfferSender = null
         pendingVoiceOfferPayload = null
+        pendingIncomingVoiceIce.clear()
         _state.value = _state.value.copy(
             voiceCallState = "IDLE",
             voicePeerId = null,
@@ -517,6 +529,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         voiceController.hangup()
         pendingVoiceOfferSender = null
         pendingVoiceOfferPayload = null
+        pendingIncomingVoiceIce.clear()
         _state.value = _state.value.copy(
             voiceCallState = "IDLE",
             voicePeerId = null,
@@ -1261,6 +1274,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 if (_state.value.voiceCallState == "RINGING" && pendingVoiceOfferSender == sender) {
                     pendingVoiceOfferSender = null
                     pendingVoiceOfferPayload = null
+                    pendingIncomingVoiceIce.clear()
                     _state.value = _state.value.copy(
                         voiceCallState = "IDLE",
                         voicePeerId = null,
@@ -1271,7 +1285,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     voiceController.handleSignal(sender, type, payload)
                 }
             }
-            "voice_answer", "voice_ice" -> voiceController.handleSignal(sender, type, payload)
+            "voice_ice" -> {
+                if (_state.value.voiceCallState == "RINGING" && pendingVoiceOfferSender == sender) {
+                    pendingIncomingVoiceIce += payload
+                } else {
+                    voiceController.handleSignal(sender, type, payload)
+                }
+            }
+            "voice_answer" -> voiceController.handleSignal(sender, type, payload)
         }
     }
 
@@ -1339,7 +1360,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                delay(SQUAD_SYNC_INTERVAL_MS)
+                delay(
+                    if (_state.value.voiceCallState in setOf("CALLING", "RINGING", "CONNECTING", "RECONNECTING")) {
+                        SQUAD_VOICE_SYNC_INTERVAL_MS
+                    } else {
+                        SQUAD_SYNC_INTERVAL_MS
+                    },
+                )
             }
         }
     }
@@ -1428,6 +1455,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val TRAFFIC_VERIFY_MIN_BYTES = 1_024L
         private const val MAX_LIVE_PROBE_FAILURES = 3
         private const val SQUAD_SYNC_INTERVAL_MS = 3_000L
+        private const val SQUAD_VOICE_SYNC_INTERVAL_MS = 750L
         private const val MAX_SQUAD_MESSAGES = 100
     }
 }
