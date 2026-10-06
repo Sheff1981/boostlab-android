@@ -2,6 +2,7 @@ package com.boostlab.app.model
 
 data class BoostState(
     val selectedApp: BoostApp? = null,
+    val showAdvancedSettings: Boolean = false,
     val isBoosting: Boolean = false,
     val isTunnelConnecting: Boolean = false,
     val tunnelError: String? = null,
