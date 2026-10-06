@@ -437,17 +437,18 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
 private fun SquadPage(viewModel: BoostViewModel, state: BoostState, padding: PaddingValues) {
     var joinCode by rememberSaveable { mutableStateOf("") }
     var friend by rememberSaveable { mutableStateOf("") }
+    var message by rememberSaveable { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Отряд", "Первый слой social: ID, приглашения и друзья") }
+        item { PageHeader("Отряд", "Реальный чат через BOOSTLAB Control API") }
         item {
             InfoCard(
                 "Твой ID: ${state.localUserId.ifBlank { "создаётся…" }}",
-                "Голосовой чат требует signaling/media backend. BOOSTLAB не изображает его работающим без сервера.",
+                "Текстовый чат и online-presence работают через наш сервер. Voice signaling уже поддерживается сервером; медиаканал WebRTC — следующий слой.",
             )
         }
         item {
@@ -471,12 +472,29 @@ private fun SquadPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     ) { Text("Присоединиться") }
                 } else {
                     Text("Код отряда: ${state.squadCode}", color = HubCyan, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Онлайн: ${state.squadOnlineUsers.size}",
+                        color = if (state.squadOnlineUsers.isNotEmpty()) HubMint else HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    if (state.squadOnlineUsers.isNotEmpty()) {
+                        Text(
+                            state.squadOnlineUsers.joinToString(" · "),
+                            color = HubMuted,
+                            fontSize = 10.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = viewModel::shareSquadInvite, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Default.Share, null)
                             Spacer(Modifier.width(6.dp))
                             Text("Пригласить")
+                        }
+                        OutlinedButton(onClick = viewModel::refreshSquadNow, modifier = Modifier.weight(1f)) {
+                            Text("Обновить")
                         }
                         OutlinedButton(onClick = viewModel::leaveSquad, modifier = Modifier.weight(1f)) {
                             Text("Выйти")
@@ -485,6 +503,66 @@ private fun SquadPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 }
             }
         }
+
+        if (state.squadCode != null) {
+            item {
+                Panel {
+                    Text("Чат отряда", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (state.controlPlaneUrl.startsWith("https://")) {
+                            "Синхронизация через BOOSTLAB Control"
+                        } else {
+                            "Укажи Control API HTTPS в разделе «Я», чтобы включить сетевой чат."
+                        },
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    state.squadSyncError?.let {
+                        Spacer(Modifier.height(6.dp))
+                        Text(it, color = HubError, fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+
+                    if (state.squadMessages.isEmpty()) {
+                        Text("Сообщений пока нет.", color = HubMuted, fontSize = 12.sp)
+                    } else {
+                        state.squadMessages.takeLast(20).forEach { chat ->
+                            val mine = chat.sender == state.localUserId
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+                            ) {
+                                Text(
+                                    if (mine) "Ты" else chat.sender,
+                                    color = if (mine) HubCyan else HubMint,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(chat.text, color = Color.White, fontSize = 13.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = message,
+                        onValueChange = { message = it.take(1000) },
+                        label = { Text("Сообщение") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    PrimaryButton(
+                        text = "Отправить",
+                        enabled = message.isNotBlank() && state.controlPlaneUrl.startsWith("https://"),
+                        onClick = {
+                            viewModel.sendSquadMessage(message)
+                            message = ""
+                        },
+                    )
+                }
+            }
+        }
+
         item {
             Panel {
                 Text("Друзья", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
