@@ -315,9 +315,16 @@ private fun BoostPage(
                             },
                         )
                     }
-                    OutlinedButton(onClick = viewModel::autoSelectGateway, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = viewModel::autoSelectGateway,
+                        enabled = !state.isBoosting && !state.isTunnelConnecting && !state.isAutoSelecting,
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text(if (state.isAutoSelecting) "Ищем…" else "Авто-сервер")
                     }
+                }
+                if (state.isBoosting) {
+                    Text("Сервер зафиксирован до отключения Network Boost.", color = HubMint, fontSize = 11.sp)
                 }
                 state.tunnelError?.let { Text(it, color = HubError, fontSize = 11.sp) }
             }
@@ -365,6 +372,23 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
             }
         }
         item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricBox("VPN ↓", trafficLabel(state.tunnelRxBytes), Modifier.weight(1f))
+                MetricBox("VPN ↑", trafficLabel(state.tunnelTxBytes), Modifier.weight(1f))
+                MetricBox("ROUTE", state.routeHealth, Modifier.weight(1f))
+            }
+        }
+        item {
+            InfoCard(
+                when {
+                    state.gameTrafficVerified -> "Игровой трафик подтверждён"
+                    state.isBoosting -> "Handshake есть · ждём трафик игры"
+                    else -> "Проверка игрового трафика выключена"
+                },
+                "RX/TX — фактические байты WireGuard выбранной игры. Ping/Jitter/Loss — измерения gateway, а не обещанный FPS.",
+            )
+        }
+        item {
             Panel {
                 Text("Boost Report", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Spacer(Modifier.height(8.dp))
@@ -388,6 +412,11 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 Text(if (state.isBoosting) "Network Boost активен" else "Network Boost выключен", color = Color.White, fontWeight = FontWeight.Bold)
                 Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
                 Text("Режим: ${state.boostMode} · регион: ${state.preferredRegion}", color = HubMuted, fontSize = 11.sp)
+                Text(
+                    "Маршрут: ${state.routeHealth} · ошибок проверки подряд: ${state.routeProbeFailures}",
+                    color = if (state.routeHealth == "DEGRADED") HubError else HubMuted,
+                    fontSize = 11.sp,
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = viewModel::probeGateway,
@@ -857,6 +886,12 @@ private fun findInstalled(game: CatalogGame, apps: List<BoostApp>): BoostApp? {
 
 private fun normalize(value: String): String =
     value.lowercase(Locale.ROOT).replace(Regex("[^a-zа-я0-9]+"), "")
+
+private fun trafficLabel(bytes: Long): String = when {
+    bytes >= 1_048_576L -> String.format(Locale.US, "%.1f MB", bytes / 1_048_576.0)
+    bytes >= 1_024L -> String.format(Locale.US, "%.1f KB", bytes / 1_024.0)
+    else -> bytes.toString() + " B"
+}
 
 private fun thermalLabel(status: Int?): String = when (status) {
     null -> "—"
