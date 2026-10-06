@@ -2,6 +2,7 @@ package com.boostlab.app.data
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import androidx.core.graphics.drawable.toBitmap
 import com.boostlab.app.model.BoostApp
 
@@ -20,17 +21,34 @@ class InstalledAppsRepository(private val context: Context) {
                     )
                 }.getOrNull()
 
-                BoostApp(
-                    label = info.loadLabel(pm).toString(),
-                    packageName = info.activityInfo.packageName,
-                    icon = icon,
+                val applicationInfo = info.activityInfo.applicationInfo
+                val isGame =
+                    applicationInfo.category == ApplicationInfo.CATEGORY_GAME ||
+                        applicationInfo.flags and ApplicationInfo.FLAG_IS_GAME != 0
+
+                AppCandidate(
+                    app = BoostApp(
+                        label = info.loadLabel(pm).toString(),
+                        packageName = info.activityInfo.packageName,
+                        icon = icon,
+                    ),
+                    isGame = isGame,
                 )
             }
-            .filterNot { it.packageName == context.packageName }
-            .distinctBy { it.packageName }
-            .sortedBy { it.label.lowercase() }
+            .filterNot { it.app.packageName == context.packageName }
+            .distinctBy { it.app.packageName }
+            .sortedWith(
+                compareByDescending<AppCandidate> { it.isGame }
+                    .thenBy { it.app.label.lowercase() },
+            )
+            .map { it.app }
             .toList()
     }
+
+    private data class AppCandidate(
+        val app: BoostApp,
+        val isGame: Boolean,
+    )
 
     companion object {
         private const val ICON_SIZE_PX = 192
