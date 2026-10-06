@@ -158,6 +158,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     isAutoSelecting = false,
                     gatewayHost = best.node.host,
                     gatewayPort = best.node.udpPort,
+                    wireGuardServerPublicKey = best.node.wireGuardPublicKey
+                        ?: _state.value.wireGuardServerPublicKey,
+                    wireGuardPort = best.node.wireGuardPort
+                        ?: _state.value.wireGuardPort,
                     selectedGatewayId = best.node.id,
                     selectedGatewayRegion = best.node.region,
                     pingMs = best.metrics.medianRttMs,
