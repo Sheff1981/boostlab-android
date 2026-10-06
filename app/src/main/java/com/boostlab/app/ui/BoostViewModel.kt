@@ -403,6 +403,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         "WireGuard tunnel did not reach UP state"
                     },
                 )
+                if (tunnelState == Tunnel.State.UP) {
+                    launchSelectedApp()
+                }
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     isTunnelConnecting = false,
@@ -436,6 +439,17 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         tunnelError = "WireGuard disconnect failed: ${error::class.java.simpleName}",
                     )
                 }
+        }
+    }
+
+    private fun launchSelectedApp() {
+        val packageName = _state.value.selectedApp?.packageName ?: return
+        val launchIntent = appContext.packageManager.getLaunchIntentForPackage(packageName)
+            ?: return
+
+        launchIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching {
+            appContext.startActivity(launchIntent)
         }
     }
 
