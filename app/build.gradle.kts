@@ -11,8 +11,8 @@ android {
         applicationId = "com.boostlab.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3.0-stage3"
+        versionCode = 4
+        versionName = "0.4.0-stage4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
