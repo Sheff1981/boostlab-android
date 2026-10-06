@@ -1,9 +1,7 @@
 package com.boostlab.app
 
-import android.app.NotificationManager
 import android.content.Intent
 import android.net.VpnService
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,17 +17,12 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if (result.resultCode == RESULT_OK) {
-            viewModel.startBoosterShell()
+            viewModel.connectTunnel()
         }
     }
 
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestNotificationPermissionIfNeeded()
 
         setContent {
             BoostScreen(
@@ -44,16 +37,7 @@ class MainActivity : ComponentActivity() {
         if (intent != null) {
             vpnPermissionLauncher.launch(intent)
         } else {
-            viewModel.startBoosterShell()
-        }
-    }
-
-    private fun requestNotificationPermissionIfNeeded() {
-        if (
-            Build.VERSION.SDK_INT >= 33 &&
-            !getSystemService(NotificationManager::class.java).areNotificationsEnabled()
-        ) {
-            notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            viewModel.connectTunnel()
         }
     }
 }
