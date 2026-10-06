@@ -11,7 +11,8 @@
     </queries>
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:label="BOOSTLAB"
         android:theme="@style/Theme.BoostLab"
         android:usesCleartextTraffic="false">
