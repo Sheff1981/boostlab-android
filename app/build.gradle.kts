@@ -1,3 +1,11 @@
+val defaultControlUrl = providers.environmentVariable("BOOSTLAB_DEFAULT_CONTROL_URL").orElse("").get()
+val defaultGatewayHost = providers.environmentVariable("BOOSTLAB_DEFAULT_GATEWAY_HOST").orElse("").get()
+val defaultGatewayPort = providers.environmentVariable("BOOSTLAB_DEFAULT_GATEWAY_PORT").orElse("51821").get()
+val defaultWireGuardPublicKey = providers.environmentVariable("BOOSTLAB_DEFAULT_WG_PUBLIC_KEY").orElse("").get()
+val defaultWireGuardPort = providers.environmentVariable("BOOSTLAB_DEFAULT_WG_PORT").orElse("51820").get()
+val defaultTunnelAddress = providers.environmentVariable("BOOSTLAB_DEFAULT_TUNNEL_ADDRESS").orElse("10.77.0.2/32").get()
+val defaultDnsServer = providers.environmentVariable("BOOSTLAB_DEFAULT_DNS_SERVER").orElse("1.1.1.1").get()
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -15,6 +23,14 @@ android {
         versionName = "0.5.0-friend"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "BOOSTLAB_DEFAULT_CONTROL_URL", "\"$defaultControlUrl\"")
+        buildConfigField("String", "BOOSTLAB_DEFAULT_GATEWAY_HOST", "\"$defaultGatewayHost\"")
+        buildConfigField("int", "BOOSTLAB_DEFAULT_GATEWAY_PORT", defaultGatewayPort)
+        buildConfigField("String", "BOOSTLAB_DEFAULT_WG_PUBLIC_KEY", "\"$defaultWireGuardPublicKey\"")
+        buildConfigField("int", "BOOSTLAB_DEFAULT_WG_PORT", defaultWireGuardPort)
+        buildConfigField("String", "BOOSTLAB_DEFAULT_TUNNEL_ADDRESS", "\"$defaultTunnelAddress\"")
+        buildConfigField("String", "BOOSTLAB_DEFAULT_DNS_SERVER", "\"$defaultDnsServer\"")
     }
 
     compileOptions {
