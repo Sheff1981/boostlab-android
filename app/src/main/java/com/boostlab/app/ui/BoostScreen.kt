@@ -174,6 +174,7 @@ private fun MainBoostCard(
             Text(
                 text = when {
                     state.isBoosting -> "Буст активен"
+                    state.isAutoSelecting || state.isProbing -> "Подбираем лучший сервер…"
                     !serverReady -> "Сервер нужно настроить один раз"
                     else -> "Готов к запуску"
                 },
@@ -213,6 +214,9 @@ private fun MainBoostCard(
                     }
                 },
                 enabled = !state.isTunnelConnecting &&
+                    !state.isAutoSelecting &&
+                    !state.isProbing &&
+                    !state.isLanDiscovering &&
                     (
                         state.isBoosting ||
                             (
