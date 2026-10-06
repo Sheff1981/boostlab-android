@@ -33,11 +33,21 @@ class ControlPlaneClient {
             buildList {
                 for (index in 0 until json.length()) {
                     val item = json.getJSONObject(index)
+                    val wireGuardPublicKey = item.optString("wireguard_public_key")
+                        .takeIf { it.isNotBlank() }
+                    val wireGuardPort = if (item.has("wireguard_port")) {
+                        item.optInt("wireguard_port").takeIf { it in 1..65535 }
+                    } else {
+                        null
+                    }
+
                     val node = GatewayNode(
                         id = item.getString("id"),
                         region = item.getString("region"),
                         host = item.getString("host"),
                         udpPort = item.getInt("udp_port"),
+                        wireGuardPublicKey = wireGuardPublicKey,
+                        wireGuardPort = wireGuardPort,
                         healthy = item.optBoolean("healthy", true),
                     )
 
