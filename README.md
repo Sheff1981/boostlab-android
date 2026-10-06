@@ -105,3 +105,16 @@ BOOSTLAB now ships a complete first product layer inspired by useful interaction
 - Squad surface with local squad identity, invite sharing and local friend list. Real multi-user voice requires a signaling/media backend and is deliberately not faked.
 - Profile/settings with DNS presets, auto-launch after Network Boost, stop confirmation, diagnostic logging, log export, sharing, and full server controls.
 - Server controls retain auto-selection, LAN discovery, manual probing and WireGuard settings.
+
+
+## Review hardening 0.9
+
+This pass converts recurring negative-review themes from competing boosters into reliability requirements.
+
+- The selected gateway is locked while Network Boost is active; automatic/LAN selection cannot silently replace the live endpoint.
+- WireGuard RX/TX counters are surfaced so a successful handshake is separated from actual selected-game traffic.
+- BOOSTLAB marks game traffic verified only after bytes cross the per-app tunnel.
+- Repeated gateway-probe failures produce a DEGRADED route state instead of continuing to look healthy.
+- Gateway ping/jitter/loss are labelled as route measurements and are not presented as guaranteed game-server latency or FPS gains.
+- Existing Boost Report, free network modes, region preference and custom DNS remain intact.
+- Disconnect returns to the normal Android route without rewriting global Wi-Fi/mobile/DNS settings outside the VPN.
