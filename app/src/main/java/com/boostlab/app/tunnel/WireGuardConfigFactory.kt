@@ -15,6 +15,11 @@ object WireGuardConfigFactory {
         require(profile.mtu in 1280..1500) { "Unsupported MTU" }
         require(profile.persistentKeepaliveSeconds in 0..65535) { "Invalid keepalive" }
 
+        val endpoint = formatEndpoint(
+            host = profile.endpointHost,
+            port = profile.endpointPort,
+        )
+
         val text = buildString {
             appendLine("[Interface]")
             appendLine("PrivateKey = ${profile.privateKey}")
@@ -25,13 +30,22 @@ object WireGuardConfigFactory {
             appendLine()
             appendLine("[Peer]")
             appendLine("PublicKey = ${profile.serverPublicKey}")
-            appendLine("AllowedIPs = 0.0.0.0/0, ::/0")
-            appendLine("Endpoint = ${profile.endpointHost}:${profile.endpointPort}")
+            appendLine("AllowedIPs = 0.0.0.0/0")
+            appendLine("Endpoint = $endpoint")
             if (profile.persistentKeepaliveSeconds > 0) {
                 appendLine("PersistentKeepalive = ${profile.persistentKeepaliveSeconds}")
             }
         }
 
         return ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)).use(Config::parse)
+    }
+
+    internal fun formatEndpoint(host: String, port: Int): String {
+        val trimmed = host.trim()
+        return if (trimmed.contains(':') && !trimmed.startsWith("[")) {
+            "[$trimmed]:$port"
+        } else {
+            "$trimmed:$port"
+        }
     }
 }
