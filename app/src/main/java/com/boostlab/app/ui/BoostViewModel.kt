@@ -13,6 +13,7 @@ import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.UdpRouteProbe
+import com.boostlab.app.tunnel.ClientIdentityStore
 import com.boostlab.app.vpn.BoosterVpnService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,11 +28,28 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = InstalledAppsRepository(appContext)
     private val routeProbe = UdpRouteProbe()
     private val controlPlane = ControlPlaneClient()
+    private val identityStore = ClientIdentityStore(appContext)
 
     private val _state = MutableStateFlow(BoostState())
     val state: StateFlow<BoostState> = _state.asStateFlow()
 
     val apps: List<BoostApp> = repository.loadLaunchableApps()
+
+    init {
+        runCatching { identityStore.loadOrCreate() }
+            .onSuccess { identity ->
+                _state.value = _state.value.copy(
+                    clientPublicKey = identity.publicKeyBase64,
+                    identityError = null,
+                )
+            }
+            .onFailure { error ->
+                _state.value = _state.value.copy(
+                    clientPublicKey = null,
+                    identityError = error.message ?: "Client identity unavailable",
+                )
+            }
+    }
 
     fun selectApp(app: BoostApp) {
         _state.value = _state.value.copy(selectedApp = app)
