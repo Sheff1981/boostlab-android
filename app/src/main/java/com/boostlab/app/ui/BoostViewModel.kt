@@ -47,7 +47,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure { error ->
                 _state.value = _state.value.copy(
                     clientPublicKey = null,
-                    identityError = error.message ?: "Client identity unavailable",
+                    identityError = "Client identity unavailable: ${error::class.java.simpleName}",
                 )
             }
     }
@@ -272,7 +272,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 _state.value = _state.value.copy(
                     isTunnelConnecting = false,
                     isBoosting = false,
-                    tunnelError = error.message ?: error::class.java.simpleName,
+                    tunnelError = "WireGuard connect failed: ${error::class.java.simpleName}",
                 )
             }
         }
@@ -298,7 +298,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 .onFailure { error ->
                     _state.value = _state.value.copy(
                         isTunnelConnecting = false,
-                        tunnelError = error.message ?: error::class.java.simpleName,
+                        tunnelError = "WireGuard disconnect failed: ${error::class.java.simpleName}",
                     )
                 }
         }
