@@ -4,18 +4,29 @@ Android client for BOOSTLAB — a per-app low-latency network routing project.
 
 ## Current status
 
-**Stage 1**
+**Stage 2**
 
-- Kotlin + Jetpack Compose app shell.
+- Kotlin + Jetpack Compose application.
 - Lists launchable applications on the device.
 - User can select a target application.
 - Uses Android's official `VpnService.prepare()` permission flow.
-- Starts/stops a foreground VPN service shell.
-- Packet routing is intentionally disabled until a real encrypted gateway exists.
+- Foreground VPN service shell is present.
+- Gateway host can be entered in the client.
+- UDP route-quality probe measures median RTT, jitter and packet loss.
+- Packet routing remains intentionally disabled until a real encrypted gateway is deployed and validated.
+
+## Probe protocol
+
+The client sends small UDP probe packets to port `51821`. The matching gateway returns the same probe token. Eight samples are used to calculate route quality.
+
+This probe carries no game/application traffic.
 
 ## Next
 
-Stage 2 will connect the Android client to the first BOOSTLAB gateway, enable routing only for the selected app, and expose live latency/jitter/loss metrics.
+1. Deploy the first Linux gateway.
+2. Verify measurements from a real phone/network.
+3. Integrate a proven encrypted tunnel implementation.
+4. Route only the user-selected application and add safe fallback.
 
 ## Toolchain
 
