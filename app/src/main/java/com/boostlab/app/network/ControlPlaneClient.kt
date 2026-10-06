@@ -1,10 +1,8 @@
 package com.boostlab.app.network
 
-import com.boostlab.app.model.PlanTier
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -59,41 +57,6 @@ class ControlPlaneClient {
         }
     }
 
-    suspend fun fetchClientPolicy(baseUrl: String): ClientPolicy = withContext(Dispatchers.IO) {
-        val normalized = normalizeBaseUrl(baseUrl)
-        val connection = openGet("$normalized/v1/client-policy")
-
-        try {
-            val code = connection.responseCode
-            require(code == HttpURLConnection.HTTP_OK) {
-                "Control API returned HTTP $code"
-            }
-
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val json = JSONObject(body)
-
-            ClientPolicy(
-                defaultTier = when (json.optString("default_tier").lowercase()) {
-                    "premium" -> PlanTier.PREMIUM
-                    else -> PlanTier.FREE
-                },
-                free = parseTierPolicy(json.getJSONObject("free")),
-                premium = parseTierPolicy(json.getJSONObject("premium")),
-            )
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun parseTierPolicy(json: JSONObject): TierPolicy {
-        return TierPolicy(
-            adsEnabled = json.optBoolean("ads_enabled", false),
-            maxAutoCandidates = json.optInt("max_auto_candidates", 1)
-                .coerceIn(1, MAX_POLICY_CANDIDATES),
-            priorityRouting = json.optBoolean("priority_routing", false),
-        )
-    }
-
     private fun normalizeBaseUrl(baseUrl: String): String {
         val normalized = baseUrl.trim().trimEnd('/')
         require(normalized.startsWith("https://")) {
@@ -110,9 +73,5 @@ class ControlPlaneClient {
             instanceFollowRedirects = false
             setRequestProperty("Accept", "application/json")
         }
-    }
-
-    companion object {
-        private const val MAX_POLICY_CANDIDATES = 32
     }
 }
