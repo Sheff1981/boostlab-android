@@ -142,6 +142,35 @@ private fun RouteCard(
 
             Spacer(Modifier.height(10.dp))
 
+            Button(
+                onClick = viewModel::discoverLanGateway,
+                enabled = !state.isLanDiscovering &&
+                    !state.isAutoSelecting &&
+                    !state.isProbing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (state.isLanDiscovering) {
+                        "Ищем в Wi-Fi…"
+                    } else {
+                        "Найти локальный сервер без VPS"
+                    },
+                )
+            }
+
+            Text(
+                text = if (state.lanGatewayCount > 0) {
+                    "Локальных серверов найдено: ${state.lanGatewayCount}"
+                } else {
+                    "Для проверки можно запустить BOOSTLAB Gateway на Windows-ПК в той же Wi-Fi сети."
+                },
+                color = Color(0xFF9FB4C9),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+
+            Spacer(Modifier.height(14.dp))
+
             OutlinedTextField(
                 value = state.controlPlaneUrl,
                 onValueChange = viewModel::updateControlPlaneUrl,
