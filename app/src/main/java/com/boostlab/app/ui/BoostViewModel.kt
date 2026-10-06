@@ -77,9 +77,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     identityError = "Client identity unavailable: ${error::class.java.simpleName}",
                 )
             }
+
+        if (saved.gatewayHost.isNotBlank()) {
+            probeGateway()
+        }
     }
 
     fun selectApp(app: BoostApp) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             selectedApp = app,
             tunnelError = null,
@@ -94,6 +99,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateControlPlaneUrl(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             controlPlaneUrl = value.trim(),
             probeError = null,
@@ -102,6 +108,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateGatewayHost(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             gatewayHost = value.trim(),
             selectedGatewayId = null,
@@ -113,6 +120,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateWireGuardServerPublicKey(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             wireGuardServerPublicKey = value.trim(),
             tunnelError = null,
@@ -121,6 +129,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateTunnelAddress(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             tunnelAddress = value.trim(),
             tunnelError = null,
@@ -129,6 +138,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateDnsServer(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             dnsServer = value.trim(),
             tunnelError = null,
