@@ -7,6 +7,7 @@ import com.boostlab.app.data.InstalledAppsRepository
 import com.boostlab.app.data.PrivateProfileStore
 import com.boostlab.app.data.PrivateServerProfile
 import com.boostlab.app.boost.GameBoostEngine
+import com.boostlab.app.boost.GameLaunchAdvisor
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.network.ControlPlaneClient
@@ -115,20 +116,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        val readiness = gameBoostEngine.inspect()
+        val readiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
         _state.value = snapshot.copy(
             isGameLaunching = true,
             gameLaunchError = null,
             gameBoostMessage = "Подготавливаем запуск…",
-            availableMemoryMb = readiness.availableMemoryMb,
-            totalMemoryMb = readiness.totalMemoryMb,
-            availableMemoryPercent = readiness.availableMemoryPercent,
-            deviceLowMemory = readiness.lowMemory,
-            lowRamDevice = readiness.lowRamDevice,
-            powerSaveMode = readiness.powerSaveMode,
-            thermalStatus = readiness.thermalStatus,
-            networkValidated = readiness.networkValidated,
-            networkTransport = readiness.networkTransport,
+            availableMemoryMb = readiness?.availableMemoryMb ?: snapshot.availableMemoryMb,
+            totalMemoryMb = readiness?.totalMemoryMb ?: snapshot.totalMemoryMb,
+            availableMemoryPercent = readiness?.availableMemoryPercent
+                ?: snapshot.availableMemoryPercent,
+            deviceLowMemory = readiness?.lowMemory ?: snapshot.deviceLowMemory,
+            lowRamDevice = readiness?.lowRamDevice ?: snapshot.lowRamDevice,
+            powerSaveMode = readiness?.powerSaveMode ?: snapshot.powerSaveMode,
+            thermalStatus = readiness?.thermalStatus ?: snapshot.thermalStatus,
+            networkValidated = readiness?.networkValidated ?: snapshot.networkValidated,
+            networkTransport = readiness?.networkTransport ?: snapshot.networkTransport,
         )
 
         gameBoostEngine.launch(selectedApp.packageName)
@@ -136,18 +138,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 _state.value = _state.value.copy(
                     isGameLaunching = false,
                     gameLaunchError = null,
-                    gameBoostMessage = when {
-                        readiness.thermalStatus != null && readiness.thermalStatus >= 4 ->
-                            "Игра запущена · сильный нагрев"
-                        readiness.lowMemory || readiness.availableMemoryPercent < 10 ->
-                            "Игра запущена · мало свободной RAM"
-                        readiness.powerSaveMode ->
-                            "Игра запущена · энергосбережение включено"
-                        readiness.networkValidated == false ->
-                            "Игра запущена · проверь соединение"
-                        else ->
-                            "Игра запущена · система готова"
-                    },
+                    gameBoostMessage = GameLaunchAdvisor.message(readiness),
                 )
             }
             .onFailure { error ->

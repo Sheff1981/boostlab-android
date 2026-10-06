@@ -14,7 +14,7 @@ data class GameReadinessSnapshot(
     val availableMemoryPercent: Int,
     val lowMemory: Boolean,
     val lowRamDevice: Boolean,
-    val powerSaveMode: Boolean,
+    val powerSaveMode: Boolean?,
     val thermalStatus: Int?,
     val networkValidated: Boolean?,
     val networkTransport: String?,
@@ -25,20 +25,23 @@ class GameBoostEngine(
 ) {
     fun inspect(): GameReadinessSnapshot {
         val activityManager = context.getSystemService(ActivityManager::class.java)
+            ?: error("ActivityManager unavailable")
         val memoryInfo = ActivityManager.MemoryInfo()
         activityManager.getMemoryInfo(memoryInfo)
 
         val powerManager = context.getSystemService(PowerManager::class.java)
-        val thermalStatus = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val thermalStatus = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && powerManager != null
+        ) {
             powerManager.currentThermalStatus
         } else {
             null
         }
 
         val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
-        val networkCapabilities = connectivityManager.getNetworkCapabilities(
-            connectivityManager.activeNetwork,
-        )
+        val networkCapabilities = connectivityManager?.let { manager ->
+            manager.getNetworkCapabilities(manager.activeNetwork)
+        }
 
         val availableMemoryMb = memoryInfo.availMem / BYTES_PER_MEGABYTE
         val totalMemoryMb = memoryInfo.totalMem / BYTES_PER_MEGABYTE
@@ -56,7 +59,7 @@ class GameBoostEngine(
             availableMemoryPercent = availableMemoryPercent,
             lowMemory = memoryInfo.lowMemory,
             lowRamDevice = activityManager.isLowRamDevice,
-            powerSaveMode = powerManager.isPowerSaveMode,
+            powerSaveMode = powerManager?.isPowerSaveMode,
             thermalStatus = thermalStatus,
             networkValidated = networkCapabilities?.hasCapability(
                 NetworkCapabilities.NET_CAPABILITY_VALIDATED,
