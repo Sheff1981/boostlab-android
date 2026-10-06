@@ -81,10 +81,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-        if (saved.controlPlaneUrl.startsWith("https://")) {
-            autoSelectGateway()
-        } else if (saved.gatewayHost.isNotBlank()) {
-            probeGateway()
+        viewModelScope.launch {
+            restoreTunnelOrRefreshRoute(saved)
         }
     }
 
@@ -455,12 +453,55 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private suspend fun restoreTunnelOrRefreshRoute(saved: PrivateServerProfile) {
+        val existingTunnelState = runCatching { tunnelController.state() }.getOrNull()
+        val canRestoreActiveSession =
+            existingTunnelState == Tunnel.State.UP &&
+                _state.value.selectedApp != null &&
+                saved.gatewayHost.isNotBlank() &&
+                saved.wireGuardServerPublicKey.isNotBlank()
+
+        if (canRestoreActiveSession) {
+            _state.value = _state.value.copy(
+                isBoosting = true,
+                isTunnelConnecting = false,
+                tunnelError = null,
+                serverLabel = "Буст активен · ${saved.gatewayHost}",
+            )
+            startLiveMetrics()
+            return
+        }
+
+        if (existingTunnelState == Tunnel.State.UP) {
+            runCatching { tunnelController.disconnect() }
+        }
+
+        if (saved.controlPlaneUrl.startsWith("https://")) {
+            autoSelectGateway()
+        } else if (saved.gatewayHost.isNotBlank()) {
+            probeGateway()
+        }
+    }
+
     private fun startLiveMetrics() {
         stopLiveMetrics()
         liveMetricsJob = viewModelScope.launch {
             while (_state.value.isBoosting) {
                 val snapshot = _state.value
                 if (snapshot.gatewayHost.isBlank()) break
+
+                when (runCatching { tunnelController.state() }.getOrNull()) {
+                    Tunnel.State.DOWN -> {
+                        _state.value = _state.value.copy(
+                            isBoosting = false,
+                            isTunnelConnecting = false,
+                            serverLabel = "Буст отключён",
+                            tunnelError = "VPN-туннель остановлен",
+                        )
+                        break
+                    }
+                    else -> Unit
+                }
 
                 runCatching {
                     routeProbe.measure(
