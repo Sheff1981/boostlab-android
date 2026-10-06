@@ -74,6 +74,7 @@ data class BoostState(
     val routeRecommendation: String = "UNKNOWN",
     val routeTargetId: String? = null,
     val routeTargetHost: String? = null,
+    val routeTargetPort: Int? = null,
     val directPingMs: Int? = null,
     val directP95Ms: Int? = null,
     val directJitterMs: Int? = null,
@@ -83,6 +84,7 @@ data class BoostState(
     val routeGainMs: Int? = null,
     val selectedGatewayId: String? = null,
     val selectedGatewayRegion: String? = null,
+    val selectedRouteApiUrl: String? = null,
 
     val gatewayHost: String = "",
     val gatewayPort: Int = 51821,
