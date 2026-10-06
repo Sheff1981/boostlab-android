@@ -36,8 +36,6 @@ class RouteScorerTest {
 
         assertTrue(RouteScorer.score(unreachable).isInfinite())
     }
-}
-
 
     @Test
     fun tailLatencyPenalizesUnstableRoute() {
@@ -60,3 +58,4 @@ class RouteScorerTest {
 
         assertTrue(RouteScorer.score(stable) < RouteScorer.score(spiky))
     }
+}
