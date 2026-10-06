@@ -121,9 +121,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             gameLaunchError = null,
             gameBoostMessage = "Подготавливаем запуск…",
             availableMemoryMb = readiness.availableMemoryMb,
+            totalMemoryMb = readiness.totalMemoryMb,
+            availableMemoryPercent = readiness.availableMemoryPercent,
             deviceLowMemory = readiness.lowMemory,
+            lowRamDevice = readiness.lowRamDevice,
             powerSaveMode = readiness.powerSaveMode,
             thermalStatus = readiness.thermalStatus,
+            networkValidated = readiness.networkValidated,
+            networkTransport = readiness.networkTransport,
         )
 
         gameBoostEngine.launch(selectedApp.packageName)
@@ -132,9 +137,16 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     isGameLaunching = false,
                     gameLaunchError = null,
                     gameBoostMessage = when {
-                        readiness.lowMemory -> "Игра запущена · мало свободной RAM"
-                        readiness.powerSaveMode -> "Игра запущена · энергосбережение включено"
-                        else -> "Игра запущена"
+                        readiness.thermalStatus != null && readiness.thermalStatus >= 4 ->
+                            "Игра запущена · сильный нагрев"
+                        readiness.lowMemory || readiness.availableMemoryPercent < 10 ->
+                            "Игра запущена · мало свободной RAM"
+                        readiness.powerSaveMode ->
+                            "Игра запущена · энергосбережение включено"
+                        readiness.networkValidated == false ->
+                            "Игра запущена · проверь соединение"
+                        else ->
+                            "Игра запущена · система готова"
                     },
                 )
             }
@@ -152,9 +164,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             .onSuccess { readiness ->
                 _state.value = _state.value.copy(
                     availableMemoryMb = readiness.availableMemoryMb,
+                    totalMemoryMb = readiness.totalMemoryMb,
+                    availableMemoryPercent = readiness.availableMemoryPercent,
                     deviceLowMemory = readiness.lowMemory,
+                    lowRamDevice = readiness.lowRamDevice,
                     powerSaveMode = readiness.powerSaveMode,
                     thermalStatus = readiness.thermalStatus,
+                    networkValidated = readiness.networkValidated,
+                    networkTransport = readiness.networkTransport,
                 )
             }
     }

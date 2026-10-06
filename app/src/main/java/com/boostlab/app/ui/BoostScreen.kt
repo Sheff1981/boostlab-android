@@ -834,11 +834,11 @@ private fun SelectedGameCard(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SmallPill(
                             icon = Icons.Default.NetworkCheck,
-                            text = state.availableMemoryMb?.let { "RAM: ${it} MB" } ?: "RAM: —",
+                            text = ramPillLabel(state),
                         )
                         SmallPill(
                             icon = Icons.Default.Public,
-                            text = if (state.isBoosting) "VPN ON" else "VPN OFF",
+                            text = networkPillLabel(state),
                         )
                     }
                 }
@@ -964,7 +964,9 @@ private fun DeviceReadinessRow(state: BoostState) {
         MetricCard(
             icon = Icons.Default.Bolt,
             title = "RAM",
-            value = state.availableMemoryMb?.let { "${it} MB" } ?: "—",
+            value = state.availableMemoryPercent?.let { "${it}%" }
+                ?: state.availableMemoryMb?.let { "${it} MB" }
+                ?: "—",
             accent = if (state.deviceLowMemory == true) Error else Mint,
             modifier = Modifier.weight(1f),
         )
@@ -991,6 +993,19 @@ private fun DeviceReadinessRow(state: BoostState) {
             modifier = Modifier.weight(1f),
         )
     }
+}
+
+private fun ramPillLabel(state: BoostState): String = when {
+    state.availableMemoryMb == null -> "RAM: —"
+    state.availableMemoryPercent != null ->
+        "RAM: ${state.availableMemoryMb} MB · ${state.availableMemoryPercent}%"
+    else -> "RAM: ${state.availableMemoryMb} MB"
+}
+
+private fun networkPillLabel(state: BoostState): String = when {
+    state.networkValidated == false -> "СЕТЬ: НЕТ"
+    state.networkTransport != null -> "СЕТЬ: ${state.networkTransport}"
+    else -> "СЕТЬ: —"
 }
 
 private fun thermalLabel(status: Int?): String = when (status) {

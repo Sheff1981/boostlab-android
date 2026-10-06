@@ -8,9 +8,14 @@ data class BoostState(
     val gameLaunchError: String? = null,
     val gameBoostMessage: String = "Готов к запуску",
     val availableMemoryMb: Long? = null,
+    val totalMemoryMb: Long? = null,
+    val availableMemoryPercent: Int? = null,
     val deviceLowMemory: Boolean? = null,
+    val lowRamDevice: Boolean? = null,
     val powerSaveMode: Boolean? = null,
     val thermalStatus: Int? = null,
+    val networkValidated: Boolean? = null,
+    val networkTransport: String? = null,
 
     // Legacy name kept for compatibility: this flag now means VPN/network boost is active.
     val isBoosting: Boolean = false,

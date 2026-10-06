@@ -51,6 +51,6 @@ class InstalledAppsRepository(private val context: Context) {
     )
 
     companion object {
-        private const val ICON_SIZE_PX = 192
+        private const val ICON_SIZE_PX = 144
     }
 }

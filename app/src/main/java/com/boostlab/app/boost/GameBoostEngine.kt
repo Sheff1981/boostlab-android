@@ -3,14 +3,21 @@ package com.boostlab.app.boost
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.PowerManager
 
 data class GameReadinessSnapshot(
     val availableMemoryMb: Long,
+    val totalMemoryMb: Long,
+    val availableMemoryPercent: Int,
     val lowMemory: Boolean,
+    val lowRamDevice: Boolean,
     val powerSaveMode: Boolean,
     val thermalStatus: Int?,
+    val networkValidated: Boolean?,
+    val networkTransport: String?,
 )
 
 class GameBoostEngine(
@@ -28,11 +35,33 @@ class GameBoostEngine(
             null
         }
 
+        val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
+        val networkCapabilities = connectivityManager.getNetworkCapabilities(
+            connectivityManager.activeNetwork,
+        )
+
+        val availableMemoryMb = memoryInfo.availMem / BYTES_PER_MEGABYTE
+        val totalMemoryMb = memoryInfo.totalMem / BYTES_PER_MEGABYTE
+        val availableMemoryPercent = if (memoryInfo.totalMem > 0L) {
+            ((memoryInfo.availMem * 100L) / memoryInfo.totalMem)
+                .toInt()
+                .coerceIn(0, 100)
+        } else {
+            0
+        }
+
         return GameReadinessSnapshot(
-            availableMemoryMb = memoryInfo.availMem / BYTES_PER_MEGABYTE,
+            availableMemoryMb = availableMemoryMb,
+            totalMemoryMb = totalMemoryMb,
+            availableMemoryPercent = availableMemoryPercent,
             lowMemory = memoryInfo.lowMemory,
+            lowRamDevice = activityManager.isLowRamDevice,
             powerSaveMode = powerManager.isPowerSaveMode,
             thermalStatus = thermalStatus,
+            networkValidated = networkCapabilities?.hasCapability(
+                NetworkCapabilities.NET_CAPABILITY_VALIDATED,
+            ),
+            networkTransport = networkTransportLabel(networkCapabilities),
         )
     }
 
@@ -46,6 +75,15 @@ class GameBoostEngine(
         )
 
         context.startActivity(launchIntent)
+    }
+
+    private fun networkTransportLabel(capabilities: NetworkCapabilities?): String? = when {
+        capabilities == null -> null
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Mobile"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Ethernet"
+        else -> "Other"
     }
 
     companion object {
