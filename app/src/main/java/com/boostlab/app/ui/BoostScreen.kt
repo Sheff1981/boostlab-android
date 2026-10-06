@@ -1241,6 +1241,242 @@ private fun SmallPill(
 }
 
 @Composable
+private fun StatsOverviewCard(
+    state: BoostState,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color(0xFF0C294A),
+                        Color(0xFF0A1C38),
+                        Color(0xFF1B113A),
+                    ),
+                ),
+            )
+            .border(1.dp, NeonGradient, RoundedCornerShape(26.dp))
+            .padding(18.dp),
+    ) {
+        Text(
+            text = "Статистика соединения",
+            color = Color.White,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Black,
+        )
+        Text(
+            text = if (state.isBoosting) {
+                "Буст активен — показываем текущий маршрут"
+            } else {
+                "Последние измерения выбранного маршрута"
+            },
+            color = if (state.isBoosting) Mint else Muted,
+            fontSize = 13.sp,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            StatusValue(
+                label = "Сервер",
+                value = state.selectedGatewayRegion ?: "Авто",
+                accent = Cyan,
+            )
+            StatusValue(
+                label = "Режим",
+                value = if (state.isBoosting) "BOOST" else "READY",
+                accent = if (state.isBoosting) Mint else Violet,
+            )
+            StatusValue(
+                label = "Игра",
+                value = state.selectedApp?.label ?: "—",
+                accent = Magenta,
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatusValue(
+    label: String,
+    value: String,
+    accent: Color,
+) {
+    Column(
+        modifier = Modifier.width(98.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(accent),
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = label,
+            color = Muted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = value,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun RouteStatusCard(
+    state: BoostState,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(Color(0xD90A1830))
+            .border(1.dp, Color(0xFF233B61), RoundedCornerShape(24.dp))
+            .padding(16.dp),
+    ) {
+        Text(
+            text = "Маршрут",
+            color = Color.White,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Black,
+        )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            text = state.serverLabel,
+            color = if (state.isBoosting) Mint else Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        if (state.gatewayHost.isNotBlank()) {
+            Text(
+                text = state.gatewayHost,
+                color = Muted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+        state.probeError?.let {
+            Text(
+                text = it,
+                color = Error,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PrivateProfileCard(
+    state: BoostState,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(26.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color(0xFF102748),
+                        Color(0xFF0A1730),
+                    ),
+                ),
+            )
+            .border(1.dp, Color(0xFF29517D), RoundedCornerShape(26.dp))
+            .padding(18.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Cyan, Blue, Violet),
+                        ),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+
+            Column {
+                Text(
+                    text = "Приватная сборка",
+                    color = Color.White,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    text = "Android · BOOSTLAB friend build",
+                    color = Muted,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = "Выбранная игра",
+            color = Muted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = state.selectedApp?.label ?: "Пока не выбрана",
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            text = "Сервер",
+            color = Muted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Text(
+            text = when {
+                state.gatewayHost.isBlank() -> "Не настроен"
+                state.isBoosting -> "Подключён"
+                else -> state.serverLabel
+            },
+            color = if (state.isBoosting) Mint else Color.White,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 3.dp),
+        )
+    }
+}
+
+@Composable
 private fun ServerSettingsButton(
     expanded: Boolean,
     onClick: () -> Unit,
@@ -1448,7 +1684,10 @@ private fun SecondaryAction(
 }
 
 @Composable
-private fun BoostBottomBar() {
+private fun BoostBottomBar(
+    selectedTab: HomeTab,
+    onTabSelected: (HomeTab) -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1459,29 +1698,33 @@ private fun BoostBottomBar() {
                 shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             )
             .navigationBarsPadding()
-            .padding(horizontal = 22.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BottomNavItem(
             icon = Icons.Default.Gamepad,
             label = "Игры",
-            selected = false,
+            selected = selectedTab == HomeTab.GAMES,
+            onClick = { onTabSelected(HomeTab.GAMES) },
         )
         BottomNavItem(
             icon = Icons.Default.Bolt,
             label = "Буст",
-            selected = true,
+            selected = selectedTab == HomeTab.BOOST,
+            onClick = { onTabSelected(HomeTab.BOOST) },
         )
         BottomNavItem(
             icon = Icons.Default.BarChart,
             label = "Статистика",
-            selected = false,
+            selected = selectedTab == HomeTab.STATS,
+            onClick = { onTabSelected(HomeTab.STATS) },
         )
         BottomNavItem(
             icon = Icons.Default.Person,
             label = "Я",
-            selected = false,
+            selected = selectedTab == HomeTab.PROFILE,
+            onClick = { onTabSelected(HomeTab.PROFILE) },
         )
     }
 }
@@ -1491,10 +1734,22 @@ private fun BottomNavItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     selected: Boolean,
+    onClick: () -> Unit,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(68.dp),
+        modifier = Modifier
+            .width(78.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                if (selected) {
+                    Color(0x3324DFFF)
+                } else {
+                    Color.Transparent
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
     ) {
         Icon(
             imageVector = icon,
