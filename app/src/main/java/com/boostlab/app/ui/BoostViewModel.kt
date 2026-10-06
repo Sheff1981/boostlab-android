@@ -19,9 +19,11 @@ import com.boostlab.app.tunnel.ClientIdentityStore
 import com.boostlab.app.tunnel.TunnelProfile
 import com.boostlab.app.tunnel.WireGuardTunnelController
 import com.wireguard.android.backend.Tunnel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +38,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val controlPlane = ControlPlaneClient()
     private val identityStore = ClientIdentityStore(appContext)
     private val tunnelController = WireGuardTunnelController(appContext)
+    private var liveMetricsJob: Job? = null
 
     private val _state = MutableStateFlow(BoostState())
     val state: StateFlow<BoostState> = _state.asStateFlow()
@@ -406,9 +409,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     },
                 )
                 if (tunnelState == Tunnel.State.UP) {
+                    startLiveMetrics()
                     launchSelectedApp()
+                } else {
+                    stopLiveMetrics()
                 }
             }.onFailure { error ->
+                stopLiveMetrics()
                 _state.value = _state.value.copy(
                     isTunnelConnecting = false,
                     isBoosting = false,
@@ -421,6 +428,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnectTunnel() {
         if (_state.value.isTunnelConnecting) return
 
+        stopLiveMetrics()
         _state.value = _state.value.copy(
             isTunnelConnecting = true,
             tunnelError = null,
@@ -440,8 +448,44 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         isTunnelConnecting = false,
                         tunnelError = "WireGuard disconnect failed: ${error::class.java.simpleName}",
                     )
+                    if (_state.value.isBoosting) {
+                        startLiveMetrics()
+                    }
                 }
         }
+    }
+
+    private fun startLiveMetrics() {
+        stopLiveMetrics()
+        liveMetricsJob = viewModelScope.launch {
+            while (_state.value.isBoosting) {
+                val snapshot = _state.value
+                if (snapshot.gatewayHost.isBlank()) break
+
+                runCatching {
+                    routeProbe.measure(
+                        host = snapshot.gatewayHost,
+                        port = snapshot.gatewayPort,
+                        samples = LIVE_METRICS_SAMPLES,
+                    )
+                }.onSuccess { metrics ->
+                    if (_state.value.isBoosting) {
+                        _state.value = _state.value.copy(
+                            pingMs = metrics.medianRttMs,
+                            jitterMs = metrics.jitterMs,
+                            packetLossPct = metrics.packetLossPct,
+                        )
+                    }
+                }
+
+                delay(LIVE_METRICS_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun stopLiveMetrics() {
+        liveMetricsJob?.cancel()
+        liveMetricsJob = null
     }
 
     private fun launchSelectedApp() {
@@ -475,5 +519,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_AUTO_NODES = 8
         private const val AUTO_SAMPLES = 6
         private const val LAN_AUTO_SAMPLES = 4
+        private const val LIVE_METRICS_SAMPLES = 4
+        private const val LIVE_METRICS_INTERVAL_MS = 5_000L
     }
 }
