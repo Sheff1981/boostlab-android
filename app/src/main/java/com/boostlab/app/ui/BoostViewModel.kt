@@ -78,7 +78,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-        if (saved.gatewayHost.isNotBlank()) {
+        if (saved.controlPlaneUrl.startsWith("https://")) {
+            autoSelectGateway()
+        } else if (saved.gatewayHost.isNotBlank()) {
             probeGateway()
         }
     }
