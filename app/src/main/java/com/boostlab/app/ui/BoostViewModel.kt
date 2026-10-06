@@ -183,6 +183,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             routeRecommendation = "UNKNOWN",
             routeTargetId = null,
             routeTargetHost = null,
+            routeTargetPort = null,
+            selectedRouteApiUrl = null,
             directPingMs = null,
             directP95Ms = null,
             directJitterMs = null,
@@ -1143,7 +1145,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                         )
                                         if (
                                             remote.metrics.received <= 0 ||
-                                            !remote.metrics.medianRttMs.let { it != null }
+                                            remote.metrics.medianRttMs == null
                                         ) {
                                             return@runCatching null
                                         }
@@ -1238,9 +1240,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         isAutoSelecting = false,
                         selectedGatewayId = null,
                         selectedGatewayRegion = null,
+                        selectedRouteApiUrl = null,
                         routeRecommendation = "DIRECT",
                         routeTargetId = selection.target?.id,
                         routeTargetHost = selection.target?.host,
+                        routeTargetPort = selection.target?.tcpPort,
                         directPingMs = direct?.medianRttMs,
                         directP95Ms = direct?.p95RttMs,
                         directJitterMs = direct?.jitterMs,
@@ -1278,9 +1282,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         ?: _state.value.wireGuardPort,
                     selectedGatewayId = gateway.node.id,
                     selectedGatewayRegion = gateway.node.region,
+                    selectedRouteApiUrl = gateway.node.routeApiUrl,
                     routeRecommendation = selection.recommendation,
                     routeTargetId = selection.target?.id,
                     routeTargetHost = selection.target?.host,
+                    routeTargetPort = selection.target?.tcpPort,
                     directPingMs = direct?.medianRttMs,
                     directP95Ms = direct?.p95RttMs,
                     directJitterMs = direct?.jitterMs,
