@@ -6,11 +6,6 @@ data class BoostState(
     val isTunnelConnecting: Boolean = false,
     val tunnelError: String? = null,
 
-    val planTier: PlanTier = PlanTier.FREE,
-    val adsEnabled: Boolean = true,
-    val priorityRouting: Boolean = false,
-    val maxAutoCandidates: Int = 8,
-
     val clientPublicKey: String? = null,
     val identityError: String? = null,
 
