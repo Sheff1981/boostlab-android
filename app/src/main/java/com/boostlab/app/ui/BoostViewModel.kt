@@ -22,12 +22,14 @@ import com.boostlab.app.boost.GameLaunchPolicy
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.model.GameLaunchMode
+import com.boostlab.app.model.SquadChatMessage
 import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
 import com.boostlab.app.network.LanGatewayDiscovery
 import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteScorer
+import com.boostlab.app.network.SquadApiClient
 import com.boostlab.app.network.UdpRouteProbe
 import com.boostlab.app.tunnel.ClientIdentityStore
 import com.boostlab.app.tunnel.TunnelProfile
@@ -57,10 +59,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val routeProbe = UdpRouteProbe()
     private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
+    private val squadApi = SquadApiClient()
     private val identityStore = ClientIdentityStore(appContext)
     private val tunnelController = WireGuardTunnelController(appContext)
     private val gameBoostEngine = GameBoostEngine(appContext)
     private var liveMetricsJob: Job? = null
+    private var squadSyncJob: Job? = null
+    private var squadLastEventId = 0L
     private var trafficBaselineRx = 0L
     private var trafficBaselineTx = 0L
 
@@ -138,6 +143,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             restoreTunnelOrRefreshRoute(saved)
         }
+        startSquadSync()
     }
 
     fun selectApp(app: BoostApp) {
@@ -265,6 +271,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         )
         debugLog("Создан локальный отряд: ${social.squadCode}")
         addEvent("Отряд", "Создан ${social.squadCode}")
+        startSquadSync(resetCursor = true)
     }
 
     fun joinSquad(code: String) {
@@ -278,14 +285,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         )
         debugLog("Выбран код отряда: $normalized")
         addEvent("Отряд", "Присоединение по коду $normalized")
+        startSquadSync(resetCursor = true)
     }
 
     fun leaveSquad() {
+        squadSyncJob?.cancel()
+        squadSyncJob = null
+        squadLastEventId = 0L
         val social = socialStore.leaveSquad()
         _state.value = _state.value.copy(
             squadCode = null,
             localUserId = social.userId,
             friends = social.friends,
+            squadMessages = emptyList(),
+            squadOnlineUsers = emptyList(),
+            squadSyncError = null,
         )
         debugLog("Выход из отряда")
     }
@@ -305,6 +319,76 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             "BOOSTLAB отряд",
             "Присоединяйся к моему отряду BOOSTLAB. Код: $code\nboostlab://squad/$code",
         )
+    }
+
+
+    fun sendSquadMessage(text: String) {
+        val message = text.trim()
+        val snapshot = _state.value
+        val code = snapshot.squadCode ?: return
+        if (message.isBlank()) return
+        if (!snapshot.controlPlaneUrl.startsWith("https://")) {
+            _state.value = snapshot.copy(squadSyncError = "Для сетевого чата укажи Control API HTTPS")
+            return
+        }
+
+        viewModelScope.launch {
+            runCatching {
+                squadApi.sendChat(
+                    baseUrl = _state.value.controlPlaneUrl,
+                    code = code,
+                    sender = _state.value.localUserId,
+                    text = message.take(1000),
+                )
+            }.onSuccess { event ->
+                squadLastEventId = maxOf(squadLastEventId, event.id)
+                val chat = SquadChatMessage(
+                    id = event.id,
+                    sender = event.sender,
+                    text = event.text,
+                    createdAt = event.createdAt,
+                )
+                _state.value = _state.value.copy(
+                    squadMessages = (_state.value.squadMessages + chat)
+                        .distinctBy { it.id }
+                        .sortedBy { it.id }
+                        .takeLast(MAX_SQUAD_MESSAGES),
+                    squadSyncError = null,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    squadSyncError = error.message ?: "Не удалось отправить сообщение",
+                )
+            }
+        }
+    }
+
+    fun refreshSquadNow() {
+        startSquadSync(resetCursor = false)
+    }
+
+    fun sendVoiceSignal(type: String, payload: String) {
+        val snapshot = _state.value
+        val code = snapshot.squadCode ?: return
+        if (!snapshot.controlPlaneUrl.startsWith("https://")) return
+        if (type !in setOf("voice_offer", "voice_answer", "voice_ice", "voice_hangup")) return
+        if (payload.isBlank()) return
+
+        viewModelScope.launch {
+            runCatching {
+                squadApi.sendSignal(
+                    baseUrl = _state.value.controlPlaneUrl,
+                    code = code,
+                    sender = _state.value.localUserId,
+                    type = type,
+                    payload = payload,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    squadSyncError = error.message ?: "Ошибка voice signaling",
+                )
+            }
+        }
     }
 
     fun openStoreSearch(query: String) {
@@ -454,6 +538,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             probeError = null,
         )
         persistProfile()
+        if (value.trim().startsWith("https://") && _state.value.squadCode != null) {
+            startSquadSync(resetCursor = false)
+        }
     }
 
     fun updateGatewayHost(value: String) {
@@ -1002,6 +1089,71 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         liveMetricsJob = null
     }
 
+    private fun startSquadSync(resetCursor: Boolean = false) {
+        squadSyncJob?.cancel()
+        squadSyncJob = null
+
+        val code = _state.value.squadCode ?: return
+        if (resetCursor) {
+            squadLastEventId = 0L
+            _state.value = _state.value.copy(
+                squadMessages = emptyList(),
+                squadOnlineUsers = emptyList(),
+                squadSyncError = null,
+            )
+        }
+
+        squadSyncJob = viewModelScope.launch {
+            while (_state.value.squadCode == code) {
+                val snapshot = _state.value
+                val baseUrl = snapshot.controlPlaneUrl
+
+                if (!baseUrl.startsWith("https://")) {
+                    _state.value = snapshot.copy(
+                        squadSyncError = "Укажи Control API HTTPS, чтобы включить сетевой чат",
+                    )
+                    delay(SQUAD_SYNC_INTERVAL_MS)
+                    continue
+                }
+
+                runCatching {
+                    squadApi.touchPresence(baseUrl, code, snapshot.localUserId)
+                    val events = squadApi.fetchEvents(baseUrl, code, squadLastEventId)
+                    val presence = squadApi.fetchPresence(baseUrl, code)
+                    events to presence
+                }.onSuccess { (events, presence) ->
+                    if (events.isNotEmpty()) {
+                        squadLastEventId = maxOf(squadLastEventId, events.maxOf { it.id })
+                    }
+                    val chats = events
+                        .filter { it.type == "chat" && it.text.isNotBlank() }
+                        .map {
+                            SquadChatMessage(
+                                id = it.id,
+                                sender = it.sender,
+                                text = it.text,
+                                createdAt = it.createdAt,
+                            )
+                        }
+                    _state.value = _state.value.copy(
+                        squadMessages = (_state.value.squadMessages + chats)
+                            .distinctBy { it.id }
+                            .sortedBy { it.id }
+                            .takeLast(MAX_SQUAD_MESSAGES),
+                        squadOnlineUsers = presence.map { it.userId }.distinct().sorted(),
+                        squadSyncError = null,
+                    )
+                }.onFailure { error ->
+                    _state.value = _state.value.copy(
+                        squadSyncError = error.message ?: "Ошибка синхронизации отряда",
+                    )
+                }
+
+                delay(SQUAD_SYNC_INTERVAL_MS)
+            }
+        }
+    }
+
     private fun activeDnsValue(snapshot: BoostState): String {
         return if (snapshot.customDnsEnabled && snapshot.customDnsServers.isNotEmpty()) {
             snapshot.customDnsServers.take(4).joinToString(",")
@@ -1070,6 +1222,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    override fun onCleared() {
+        squadSyncJob?.cancel()
+        liveMetricsJob?.cancel()
+        super.onCleared()
+    }
+
     companion object {
         private const val MAX_AUTO_NODES = 8
         private const val AUTO_SAMPLES = 6
@@ -1078,5 +1236,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val LIVE_METRICS_INTERVAL_MS = 5_000L
         private const val TRAFFIC_VERIFY_MIN_BYTES = 1_024L
         private const val MAX_LIVE_PROBE_FAILURES = 3
+        private const val SQUAD_SYNC_INTERVAL_MS = 3_000L
+        private const val MAX_SQUAD_MESSAGES = 100
     }
 }
