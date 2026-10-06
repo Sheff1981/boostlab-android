@@ -65,7 +65,7 @@ fun BoostScreen(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "Маршрут для выбранного приложения",
+                text = "Автовыбор лучшего маршрута",
                 color = Color(0xFF9FB4C9),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -78,15 +78,60 @@ fun BoostScreen(
                 shape = RoundedCornerShape(22.dp),
             ) {
                 Column(Modifier.padding(18.dp)) {
-                    Text("Stage 2 · измерение маршрута", color = Cyan, fontWeight = FontWeight.Bold)
+                    Text("Stage 3 · выбор gateway", color = Cyan, fontWeight = FontWeight.Bold)
+
                     Spacer(Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = state.controlPlaneUrl,
+                        onValueChange = viewModel::updateControlPlaneUrl,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Control API (HTTPS)") },
+                        placeholder = { Text("https://control.example.com") },
+                        supportingText = {
+                            Text("Приложение получит список доступных серверов")
+                        },
+                    )
+
+                    Button(
+                        onClick = viewModel::autoSelectGateway,
+                        enabled = state.controlPlaneUrl.startsWith("https://") &&
+                            !state.isAutoSelecting,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            if (state.isAutoSelecting) {
+                                "Ищем лучший сервер…"
+                            } else {
+                                "Выбрать лучший автоматически"
+                            },
+                        )
+                    }
+
+                    if (state.discoveredNodes > 0) {
+                        Text(
+                            text = "Найдено серверов: ${state.discoveredNodes}",
+                            color = Color(0xFF9FB4C9),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+
+                    Text(
+                        text = "Ручная проверка",
+                        color = Color.White,
+                        fontWeight = FontWeight.SemiBold,
+                    )
 
                     OutlinedTextField(
                         value = state.gatewayHost,
                         onValueChange = viewModel::updateGatewayHost,
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        label = { Text("IP или имя сервера") },
+                        label = { Text("IP или имя gateway") },
                         placeholder = { Text("например 203.0.113.10") },
                         supportingText = {
                             Text("UDP-порт ${state.gatewayPort}")
@@ -95,10 +140,12 @@ fun BoostScreen(
 
                     Button(
                         onClick = viewModel::probeGateway,
-                        enabled = state.gatewayHost.isNotBlank() && !state.isProbing,
+                        enabled = state.gatewayHost.isNotBlank() &&
+                            !state.isProbing &&
+                            !state.isAutoSelecting,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(if (state.isProbing) "Проверяем…" else "Проверить сервер")
+                        Text(if (state.isProbing) "Проверяем…" else "Проверить этот сервер")
                     }
 
                     Spacer(Modifier.height(10.dp))
@@ -106,7 +153,11 @@ fun BoostScreen(
 
                     state.probeError?.let {
                         Spacer(Modifier.height(4.dp))
-                        Text(it, color = Color(0xFFFFA8A8), style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            it,
+                            color = Color(0xFFFFA8A8),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
 
                     Spacer(Modifier.height(12.dp))
@@ -163,7 +214,7 @@ fun BoostScreen(
                     }
 
                     Text(
-                        text = "Трафик пока не перенаправляется: сначала проверяем реальный gateway.",
+                        text = "Пока измеряем и выбираем маршрут. Игровой трафик ещё не перенаправляется.",
                         color = Color(0xFF9FB4C9),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(top = 8.dp),
@@ -205,7 +256,11 @@ private fun MetricCard(
                 .padding(vertical = 10.dp, horizontal = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(title, color = Color(0xFF8EA7BD), style = MaterialTheme.typography.labelSmall)
+            Text(
+                title,
+                color = Color(0xFF8EA7BD),
+                style = MaterialTheme.typography.labelSmall,
+            )
             Text(value, color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
