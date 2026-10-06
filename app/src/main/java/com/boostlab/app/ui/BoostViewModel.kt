@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.boostlab.app.data.InstalledAppsRepository
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
-import com.boostlab.app.network.ClientPolicy
 import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.RouteDecisionPolicy
@@ -111,27 +110,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             runCatching {
-                val policy = runCatching {
-                    controlPlane.fetchClientPolicy(_state.value.controlPlaneUrl)
-                }.getOrElse {
-                    ClientPolicy.fallbackFree()
-                }
-                val tier = policy.defaultTier
-                val tierPolicy = policy.forTier(tier)
-                val candidateLimit = tierPolicy.maxAutoCandidates
-                    .coerceAtMost(MAX_AUTO_NODES)
-
                 val nodes = controlPlane.fetchNodes(_state.value.controlPlaneUrl)
-                    .take(candidateLimit)
+                    .take(MAX_AUTO_NODES)
                 if (nodes.isEmpty()) {
                     error("Control API returned no healthy gateways")
                 }
 
                 _state.value = _state.value.copy(
-                    planTier = tier,
-                    adsEnabled = tierPolicy.adsEnabled,
-                    priorityRouting = tierPolicy.priorityRouting,
-                    maxAutoCandidates = candidateLimit,
                     discoveredNodes = nodes.size,
                     serverLabel = "Проверяем ${nodes.size} серверов…",
                 )
