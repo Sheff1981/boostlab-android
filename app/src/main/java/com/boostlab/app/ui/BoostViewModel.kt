@@ -298,8 +298,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leaveSquad() {
-        if (_state.value.voiceCallState !in setOf("IDLE", "FAILED")) {
-            voiceController.hangup()
+        when (_state.value.voiceCallState) {
+            "RINGING" -> rejectVoiceCall()
+            "CALLING", "CONNECTING", "RECONNECTING", "CONNECTED" -> voiceController.hangup()
         }
         pendingVoiceOfferSender = null
         pendingVoiceOfferPayload = null
@@ -315,6 +316,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             squadMessages = emptyList(),
             squadOnlineUsers = emptyList(),
             squadSyncError = null,
+            voiceCallState = "IDLE",
+            voicePeerId = null,
+            voiceMuted = false,
+            voiceError = null,
         )
         debugLog("Выход из отряда")
     }
@@ -443,6 +448,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             if (state == "IDLE") {
                 pendingVoiceOfferSender = null
                 pendingVoiceOfferPayload = null
+                pendingIncomingVoiceIce.clear()
             }
         }
         val signalSink: (String, String) -> Unit = { type, payload ->
@@ -487,6 +493,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         pendingVoiceOfferSender = null
         pendingVoiceOfferPayload = null
+        pendingIncomingVoiceIce.clear()
         _state.value = snapshot.copy(
             voiceCallState = "CALLING",
             voicePeerId = peer,
