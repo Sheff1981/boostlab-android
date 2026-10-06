@@ -36,6 +36,10 @@ data class BoostState(
     val squadMessages: List<SquadChatMessage> = emptyList(),
     val squadOnlineUsers: List<String> = emptyList(),
     val squadSyncError: String? = null,
+    val voiceCallState: String = "IDLE",
+    val voicePeerId: String? = null,
+    val voiceMuted: Boolean = false,
+    val voiceError: String? = null,
 
     // Legacy name kept for compatibility: this flag now means VPN/network boost is active.
     val isBoosting: Boolean = false,
