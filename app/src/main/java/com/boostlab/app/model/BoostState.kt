@@ -36,6 +36,11 @@ data class BoostState(
     val isBoosting: Boolean = false,
     val isTunnelConnecting: Boolean = false,
     val tunnelError: String? = null,
+    val tunnelRxBytes: Long = 0L,
+    val tunnelTxBytes: Long = 0L,
+    val gameTrafficVerified: Boolean = false,
+    val routeHealth: String = "IDLE",
+    val routeProbeFailures: Int = 0,
 
     val clientPublicKey: String? = null,
     val identityError: String? = null,
