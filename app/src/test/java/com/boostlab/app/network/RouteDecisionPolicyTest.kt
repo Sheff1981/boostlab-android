@@ -11,6 +11,8 @@ class RouteDecisionPolicyTest {
                 region = "test",
                 host = "127.0.0.1",
                 udpPort = 51821,
+                wireGuardPublicKey = null,
+                wireGuardPort = null,
                 healthy = true,
             ),
             metrics = RouteMetrics(
