@@ -4,6 +4,9 @@ data class BoostState(
     val selectedApp: BoostApp? = null,
     val isBoosting: Boolean = false,
 
+    val clientPublicKey: String? = null,
+    val identityError: String? = null,
+
     val controlPlaneUrl: String = "",
     val isAutoSelecting: Boolean = false,
     val discoveredNodes: Int = 0,
