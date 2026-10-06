@@ -8,6 +8,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
+data class TunnelTraffic(
+    val rxBytes: Long,
+    val txBytes: Long,
+    val latestHandshakeEpochMillis: Long,
+)
+
 class WireGuardTunnelController(context: Context) {
     private val backend by lazy { GoBackend(context.applicationContext) }
     private val tunnel = BoostTunnel()
@@ -43,6 +49,17 @@ class WireGuardTunnelController(context: Context) {
 
     suspend fun state(): Tunnel.State = withContext(Dispatchers.IO) {
         backend.getState(tunnel)
+    }
+
+    suspend fun traffic(serverPublicKey: String): TunnelTraffic? = withContext(Dispatchers.IO) {
+        val peerKey = Key.fromBase64(serverPublicKey)
+        backend.getStatistics(tunnel).peer(peerKey)?.let { peerStats ->
+            TunnelTraffic(
+                rxBytes = peerStats.rxBytes(),
+                txBytes = peerStats.txBytes(),
+                latestHandshakeEpochMillis = peerStats.latestHandshakeEpochMillis(),
+            )
+        }
     }
 
     private suspend fun awaitFreshHandshake(
