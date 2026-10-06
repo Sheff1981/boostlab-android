@@ -136,7 +136,7 @@ fun BoostHubScreen(viewModel: BoostViewModel, onRequestVpnPermission: () -> Unit
             when (tab) {
                 HubTab.GAMES -> GamesPage(viewModel, state, padding)
                 HubTab.BOOST -> BoostPage(viewModel, state, padding, onRequestVpnPermission)
-                HubTab.STATS -> StatsPage(state, padding)
+                HubTab.STATS -> StatsPage(viewModel, state, padding)
                 HubTab.SQUAD -> SquadPage(viewModel, state, padding)
                 HubTab.PROFILE -> ProfilePage(viewModel, state, padding)
             }
@@ -172,7 +172,7 @@ private fun GamesPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Игры", "Каталог + приложения на телефоне") }
+        item { PageHeader("Игры", "Каталог: ${viewModel.catalogGames.size} · установлено: ${viewModel.apps.size}") }
         item {
             OutlinedTextField(
                 value = query,
@@ -265,6 +265,23 @@ private fun BoostPage(
         item { PageHeader("Локальный Буст", "Выбери игру → BOOST → запуск") }
         item { NetworkHero(state) }
         item {
+            Panel {
+                Text("Режим ускорения", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SelectChip("Smart", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
+                    SelectChip("Low Ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
+                    SelectChip("Stable", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Регион: ${state.preferredRegion} · узел: ${state.selectedGatewayRegion ?: "авто"}",
+                    color = HubMuted,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+        item {
             state.selectedApp?.let { SelectedAppCard(it, state, viewModel::cycleGameLaunchMode) }
                 ?: InfoCard("Игра не выбрана", "Нажми на игру ниже, чтобы подготовить запуск.")
         }
@@ -326,16 +343,16 @@ private fun BoostPage(
 }
 
 @Composable
-private fun StatsPage(state: BoostState, padding: PaddingValues) {
+private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: PaddingValues) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Статистика", "Только реальные доступные метрики") }
+        item { PageHeader("Статистика", "Boost Report · реальные измерения") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricBox("PING", state.pingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                MetricBox("PING", if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт", Modifier.weight(1f))
                 MetricBox("JITTER", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
                 MetricBox("LOSS", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
             }
@@ -348,10 +365,38 @@ private fun StatsPage(state: BoostState, padding: PaddingValues) {
             }
         }
         item {
-            InfoCard(
-                if (state.isBoosting) "Network Boost активен" else "Network Boost выключен",
-                state.serverLabel,
-            )
+            Panel {
+                Text("Boost Report", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Сессий: ${state.boostSessionCount}", color = HubMuted)
+                Text("Общее время: ${formatDuration(state.totalBoostSeconds)}", color = HubMuted)
+                Text("Последняя сессия: ${formatDuration(state.lastBoostSeconds)}", color = HubMuted)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricBox("LAST PING", state.lastBoostPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                    MetricBox("LAST JITTER", state.lastBoostJitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                    MetricBox(
+                        "LAST LOSS",
+                        state.lastBoostPacketLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—",
+                        Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+        item {
+            Panel {
+                Text(if (state.isBoosting) "Network Boost активен" else "Network Boost выключен", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
+                Text("Режим: ${state.boostMode} · регион: ${state.preferredRegion}", color = HubMuted, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = viewModel::probeGateway,
+                    enabled = state.gatewayHost.isNotBlank() && !state.isProbing,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (state.isProbing) "Проверяем ping…" else "Тест ping / jitter / loss")
+                }
+            }
         }
         item {
             InfoCard("Профиль запуска: ${state.gameLaunchMode.title}", state.gameLaunchMode.description)
@@ -444,34 +489,107 @@ private fun SquadPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
 
 @Composable
 private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: PaddingValues) {
+    var customDnsInput by rememberSaveable { mutableStateOf("") }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Я", "Настройки BOOSTLAB") }
-        item { InfoCard("Аккаунт", "Локальный профиль · ${state.localUserId}") }
+        item { PageHeader("Я", "Настройки BOOSTLAB · без VIP и платных ограничений") }
+        item { InfoCard("Аккаунт", "Локальный профиль · ${state.localUserId} · все функции бесплатны") }
+
         item {
             Panel {
-                Text("DNS", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Сейчас: ${state.dnsServer}", color = HubMuted)
+                Text("Network Boost", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Spacer(Modifier.height(8.dp))
+                Text("Режим", color = HubMuted, fontSize = 11.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("1.1.1.1", "8.8.8.8", "9.9.9.9").forEach { dns ->
-                        SelectChip(dns, state.dnsServer == dns) { viewModel.selectDns(dns) }
+                    SelectChip("Smart", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
+                    SelectChip("Low Ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
+                    SelectChip("Stable", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Предпочтительный регион", color = HubMuted, fontSize = 11.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        "AUTO" to "Авто",
+                        "EUROPE" to "EU",
+                        "ASIA" to "Asia",
+                        "US" to "US",
+                    ).forEach { (value, label) ->
+                        SelectChip(label, state.preferredRegion == value) { viewModel.setPreferredRegion(value) }
                     }
                 }
             }
         }
+
+        item { SettingSwitch("Показывать ping", state.showPing, viewModel::setShowPing) }
+        item { SettingSwitch("Автовыбор лучшего узла", state.autoSelectBestNode, viewModel::setAutoSelectBestNode) }
         item { SettingSwitch("Запустить игру после Network Boost", state.autoLaunchAfterNetworkBoost, viewModel::setAutoLaunchAfterNetworkBoost) }
         item { SettingSwitch("Подтвердить остановку", state.confirmStop, viewModel::setConfirmStop) }
+
+        item {
+            Panel {
+                Text("DNS", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Основной: ${state.dnsServer}", color = HubMuted)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("1.1.1.1", "8.8.8.8", "9.9.9.9").forEach { dns ->
+                        SelectChip(dns, !state.customDnsEnabled && state.dnsServer == dns) {
+                            viewModel.setCustomDnsEnabled(false)
+                            viewModel.selectDns(dns)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Пользовательский DNS", color = Color.White, modifier = Modifier.weight(1f))
+                    Switch(checked = state.customDnsEnabled, onCheckedChange = viewModel::setCustomDnsEnabled)
+                }
+                if (state.customDnsEnabled) {
+                    Text("Можно добавить до 4 DNS-серверов.", color = HubMuted, fontSize = 11.sp)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = customDnsInput,
+                        onValueChange = { customDnsInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("DNS, например 1.0.0.1") },
+                        singleLine = true,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.addCustomDns(customDnsInput)
+                            customDnsInput = ""
+                        },
+                        enabled = customDnsInput.isNotBlank() && state.customDnsServers.size < 4,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Добавить DNS") }
+                    state.customDnsServers.forEach { dns ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(dns, color = HubCyan, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { viewModel.removeCustomDns(dns) }) { Text("Удалить") }
+                        }
+                    }
+                }
+            }
+        }
+
         item { SettingSwitch("Включить отладочный лог", state.debugLogging, viewModel::setDebugLogging) }
         item {
             Panel {
-                Text("Диагностика", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Диагностика и Feedback", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text("Записей: ${state.diagnosticLogEntries.size}", color = HubMuted)
                 state.diagnosticLogEntries.takeLast(3).forEach {
                     Text(it, color = HubMuted, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = viewModel::shareFeedbackReport, modifier = Modifier.fillMaxWidth()) {
+                    Text("Сообщить о проблеме")
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -486,10 +604,16 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
                 }
             }
         }
+
         item {
             Panel {
-                Text("Серверы", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Серверы / Nodes", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
+                Text(
+                    "Выбрано: ${state.selectedGatewayRegion ?: "—"} · ${state.selectedGatewayId ?: "—"}",
+                    color = HubMuted,
+                    fontSize = 11.sp,
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = state.controlPlaneUrl,
@@ -524,7 +648,7 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
                         Text("Автовыбор")
                     }
                     OutlinedButton(onClick = viewModel::probeGateway, modifier = Modifier.weight(1f)) {
-                        Text("Проверить")
+                        Text("Ping")
                     }
                     OutlinedButton(onClick = viewModel::discoverLanGateway, modifier = Modifier.weight(1f)) {
                         Text("LAN")
@@ -532,10 +656,15 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
                 }
             }
         }
+
         item {
             Panel {
-                Text("FAQ", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("Локальный BOOST запускает игру с проверкой устройства. Network Boost — отдельный VPN-маршрут и требует настроенного gateway.", color = HubMuted, fontSize = 11.sp)
+                Text("О приложении", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(
+                    "Игры, Network Boost, Nodes, DNS, Ping Test, Boost Report, Logs, Search, Feedback, Squad и профиль доступны без VIP.",
+                    color = HubMuted,
+                    fontSize = 11.sp,
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = viewModel::shareApp, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Share, null)
@@ -556,7 +685,7 @@ private fun NetworkHero(state: BoostState) {
         Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricBox("PING", state.pingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+            MetricBox("PING", if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт", Modifier.weight(1f))
             MetricBox("JITTER", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
             MetricBox("LOSS", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
         }
@@ -737,4 +866,17 @@ private fun thermalLabel(status: Int?): String = when (status) {
     3 -> "HOT"
     4 -> "SEVERE"
     else -> "CRIT"
+}
+
+
+private fun formatDuration(seconds: Long): String {
+    val safe = seconds.coerceAtLeast(0L)
+    val hours = safe / 3600L
+    val minutes = (safe % 3600L) / 60L
+    val secs = safe % 60L
+    return if (hours > 0) {
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, secs)
+    } else {
+        String.format(Locale.US, "%d:%02d", minutes, secs)
+    }
 }
