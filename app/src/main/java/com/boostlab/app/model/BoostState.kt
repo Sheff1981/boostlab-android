@@ -28,6 +28,7 @@ data class BoostState(
     val customDnsEnabled: Boolean = false,
     val customDnsServers: List<String> = emptyList(),
     val diagnosticLogEntries: List<String> = emptyList(),
+    val appEvents: List<String> = emptyList(),
     val localUserId: String = "",
     val squadCode: String? = null,
     val friends: List<String> = emptyList(),
