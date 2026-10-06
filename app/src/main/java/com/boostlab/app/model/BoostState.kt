@@ -3,9 +3,16 @@ package com.boostlab.app.model
 data class BoostState(
     val selectedApp: BoostApp? = null,
     val isBoosting: Boolean = false,
+    val isTunnelConnecting: Boolean = false,
+    val tunnelError: String? = null,
 
     val clientPublicKey: String? = null,
     val identityError: String? = null,
+
+    val wireGuardServerPublicKey: String = "",
+    val wireGuardPort: Int = 51820,
+    val tunnelAddress: String = "10.77.0.2/32",
+    val dnsServer: String = "1.1.1.1",
 
     val controlPlaneUrl: String = "",
     val isAutoSelecting: Boolean = false,
