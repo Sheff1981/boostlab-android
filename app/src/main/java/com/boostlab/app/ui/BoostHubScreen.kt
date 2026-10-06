@@ -457,7 +457,7 @@ private fun SquadPage(
         item {
             InfoCard(
                 "Твой ID: ${state.localUserId.ifBlank { "создаётся…" }}",
-                "Текстовый чат и online-presence работают через наш сервер. Voice signaling уже поддерживается сервером; медиаканал WebRTC — следующий слой.",
+                "Текстовый чат, online-presence и WebRTC voice используют наш Control API для signaling. Аудио идёт напрямую между телефонами.",
             )
         }
         item {
@@ -589,6 +589,7 @@ private fun SquadPage(
                     }
                 }
             }
+        }
 
         if (state.squadCode != null) {
             item {
