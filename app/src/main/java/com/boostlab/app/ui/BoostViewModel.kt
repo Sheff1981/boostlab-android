@@ -1,8 +1,6 @@
 package com.boostlab.app.ui
 
 import android.app.Application
-import android.content.Intent
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.boostlab.app.data.InstalledAppsRepository
@@ -14,7 +12,9 @@ import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.UdpRouteProbe
 import com.boostlab.app.tunnel.ClientIdentityStore
-import com.boostlab.app.vpn.BoosterVpnService
+import com.boostlab.app.tunnel.TunnelProfile
+import com.boostlab.app.tunnel.WireGuardTunnelController
+import com.wireguard.android.backend.Tunnel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -29,6 +29,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val routeProbe = UdpRouteProbe()
     private val controlPlane = ControlPlaneClient()
     private val identityStore = ClientIdentityStore(appContext)
+    private val tunnelController = WireGuardTunnelController(appContext)
 
     private val _state = MutableStateFlow(BoostState())
     val state: StateFlow<BoostState> = _state.asStateFlow()
@@ -52,7 +53,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectApp(app: BoostApp) {
-        _state.value = _state.value.copy(selectedApp = app)
+        _state.value = _state.value.copy(
+            selectedApp = app,
+            tunnelError = null,
+        )
     }
 
     fun updateControlPlaneUrl(value: String) {
@@ -68,6 +72,28 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             selectedGatewayId = null,
             selectedGatewayRegion = null,
             probeError = null,
+            tunnelError = null,
+        )
+    }
+
+    fun updateWireGuardServerPublicKey(value: String) {
+        _state.value = _state.value.copy(
+            wireGuardServerPublicKey = value.trim(),
+            tunnelError = null,
+        )
+    }
+
+    fun updateTunnelAddress(value: String) {
+        _state.value = _state.value.copy(
+            tunnelAddress = value.trim(),
+            tunnelError = null,
+        )
+    }
+
+    fun updateDnsServer(value: String) {
+        _state.value = _state.value.copy(
+            dnsServer = value.trim(),
+            tunnelError = null,
         )
     }
 
@@ -192,24 +218,86 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startBoosterShell() {
-        val selected = _state.value.selectedApp ?: return
-        val intent = Intent(appContext, BoosterVpnService::class.java).apply {
-            action = BoosterVpnService.ACTION_START
-            putExtra(BoosterVpnService.EXTRA_PACKAGE_NAME, selected.packageName)
+    fun connectTunnel() {
+        val snapshot = _state.value
+        if (snapshot.isTunnelConnecting || snapshot.isBoosting) return
+
+        val selectedApp = snapshot.selectedApp
+        if (selectedApp == null) {
+            _state.value = snapshot.copy(tunnelError = "Выбери приложение")
+            return
+        }
+        if (snapshot.gatewayHost.isBlank()) {
+            _state.value = snapshot.copy(tunnelError = "Не задан gateway")
+            return
+        }
+        if (snapshot.wireGuardServerPublicKey.isBlank()) {
+            _state.value = snapshot.copy(tunnelError = "Не задан публичный ключ WireGuard-сервера")
+            return
         }
 
-        ContextCompat.startForegroundService(appContext, intent)
-        _state.value = _state.value.copy(isBoosting = true)
+        _state.value = snapshot.copy(
+            isTunnelConnecting = true,
+            tunnelError = null,
+        )
+
+        viewModelScope.launch {
+            runCatching {
+                val identity = identityStore.loadOrCreate()
+                val profile = TunnelProfile(
+                    privateKey = identity.privateKeyBase64,
+                    serverPublicKey = _state.value.wireGuardServerPublicKey,
+                    endpointHost = _state.value.gatewayHost,
+                    endpointPort = _state.value.wireGuardPort,
+                    addressCidr = _state.value.tunnelAddress,
+                    dnsServer = _state.value.dnsServer,
+                    selectedPackage = selectedApp.packageName,
+                )
+                tunnelController.connect(profile)
+            }.onSuccess { tunnelState ->
+                _state.value = _state.value.copy(
+                    isTunnelConnecting = false,
+                    isBoosting = tunnelState == Tunnel.State.UP,
+                    tunnelError = if (tunnelState == Tunnel.State.UP) {
+                        null
+                    } else {
+                        "WireGuard tunnel did not reach UP state"
+                    },
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    isTunnelConnecting = false,
+                    isBoosting = false,
+                    tunnelError = error.message ?: error::class.java.simpleName,
+                )
+            }
+        }
     }
 
-    fun stopBooster() {
-        appContext.startService(
-            Intent(appContext, BoosterVpnService::class.java).apply {
-                action = BoosterVpnService.ACTION_STOP
-            },
+    fun disconnectTunnel() {
+        if (_state.value.isTunnelConnecting) return
+
+        _state.value = _state.value.copy(
+            isTunnelConnecting = true,
+            tunnelError = null,
         )
-        _state.value = _state.value.copy(isBoosting = false)
+
+        viewModelScope.launch {
+            runCatching { tunnelController.disconnect() }
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        isTunnelConnecting = false,
+                        isBoosting = false,
+                        tunnelError = null,
+                    )
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        isTunnelConnecting = false,
+                        tunnelError = error.message ?: error::class.java.simpleName,
+                    )
+                }
+        }
     }
 
     companion object {
