@@ -15,6 +15,12 @@ import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 
+data class VoiceIceServer(
+    val urls: List<String>,
+    val username: String = "",
+    val credential: String = "",
+)
+
 class WebRtcVoiceController(context: Context) {
     private val appContext = context.applicationContext
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
@@ -33,10 +39,11 @@ class WebRtcVoiceController(context: Context) {
     fun startOutgoing(
         localUserId: String,
         peerUserId: String,
+        iceServers: List<VoiceIceServer>,
         signalSink: (String, String) -> Unit,
         stateSink: (String, String?) -> Unit,
     ) {
-        prepare(localUserId, peerUserId, signalSink, stateSink)
+        prepare(localUserId, peerUserId, iceServers, signalSink, stateSink)
         state("CALLING", null)
 
         val connection = requireNotNull(peer)
@@ -69,10 +76,11 @@ class WebRtcVoiceController(context: Context) {
         localUserId: String,
         peerUserId: String,
         offerPayload: String,
+        iceServers: List<VoiceIceServer>,
         signalSink: (String, String) -> Unit,
         stateSink: (String, String?) -> Unit,
     ) {
-        prepare(localUserId, peerUserId, signalSink, stateSink)
+        prepare(localUserId, peerUserId, iceServers, signalSink, stateSink)
         state("CONNECTING", null)
 
         val payload = JSONObject(offerPayload)
@@ -179,6 +187,7 @@ class WebRtcVoiceController(context: Context) {
     private fun prepare(
         localUserId: String,
         peerUserId: String,
+        iceServers: List<VoiceIceServer>,
         signalSink: (String, String) -> Unit,
         stateSink: (String, String?) -> Unit,
     ) {
@@ -196,11 +205,22 @@ class WebRtcVoiceController(context: Context) {
             setEnabled(true)
         }
 
-        val iceServers = listOf(
-            PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
-            PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
-        )
-        val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
+        val rtcIceServers = iceServers
+            .flatMap { server ->
+                server.urls.map { url ->
+                    PeerConnection.IceServer.builder(url).apply {
+                        if (server.username.isNotBlank()) setUsername(server.username)
+                        if (server.credential.isNotBlank()) setPassword(server.credential)
+                    }.createIceServer()
+                }
+            }
+            .ifEmpty {
+                listOf(
+                    PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+                    PeerConnection.IceServer.builder("stun:stun1.l.google.com:19302").createIceServer(),
+                )
+            }
+        val rtcConfig = PeerConnection.RTCConfiguration(rtcIceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
         }
 
