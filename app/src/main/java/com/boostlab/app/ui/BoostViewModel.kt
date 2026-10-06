@@ -10,6 +10,7 @@ import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.GatewayMeasurement
+import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.UdpRouteProbe
 import com.boostlab.app.vpn.BoosterVpnService
@@ -94,10 +95,20 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     }.awaitAll().filterNotNull()
                 }
 
-                measurements
+                val eligible = measurements
                     .filter { it.metrics.received > 0 && it.score.isFinite() }
-                    .minByOrNull { it.score }
+
+                val best = eligible.minByOrNull { it.score }
                     ?: error("No gateway answered the route probe")
+
+                val currentMeasurement = current.selectedGatewayId?.let { currentId ->
+                    eligible.firstOrNull { it.node.id == currentId }
+                }
+
+                RouteDecisionPolicy.choose(
+                    current = currentMeasurement,
+                    bestCandidate = best,
+                )
             }.onSuccess { best ->
                 _state.value = _state.value.copy(
                     isAutoSelecting = false,
