@@ -21,6 +21,16 @@ data class IntelligentRouteCandidate(
         }
 }
 
+data class AutoRouteSelection(
+    val gateway: GatewayMeasurement?,
+    val recommendation: String,
+    val target: GameRouteTarget? = null,
+    val directMetrics: RouteMetrics? = null,
+    val boostedMetrics: RouteMetrics? = null,
+    val gainMs: Int? = null,
+    val candidatesTested: Int = 0,
+)
+
 object RouteIntelligence {
     fun combine(first: RouteMetrics, second: RouteMetrics): RouteMetrics {
         val median = sumNullable(first.medianRttMs, second.medianRttMs)
