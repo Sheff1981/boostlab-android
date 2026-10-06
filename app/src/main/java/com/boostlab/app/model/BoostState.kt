@@ -16,6 +16,8 @@ data class BoostState(
 
     val controlPlaneUrl: String = "",
     val isAutoSelecting: Boolean = false,
+    val isLanDiscovering: Boolean = false,
+    val lanGatewayCount: Int = 0,
     val discoveredNodes: Int = 0,
     val selectedGatewayId: String? = null,
     val selectedGatewayRegion: String? = null,
