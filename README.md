@@ -55,3 +55,15 @@ No private key should ever be copied from the phone or committed to Git.
 - WireGuard Android tunnel library 1.0.20260102
 
 > BOOSTLAB is a working codename. No third-party branding or code is copied.
+
+
+## Local test without VPS
+
+Before renting a VPS, the Android client can discover a BOOSTLAB gateway running on a Windows PC in the same Wi-Fi/LAN.
+
+1. Download the latest `boostlab-local-test-windows` artifact from the Gateway CI.
+2. Start the included PowerShell script and open the private-network UDP 51821 firewall rule.
+3. On Android tap **Найти локальный сервер без VPS**.
+4. The client broadcasts the normal BOOSTLAB probe, finds reachable local gateways, measures them, and selects the best local response.
+
+This local mode validates discovery and route-quality measurement only. It does not create an alternative Internet path, so it must not be treated as proof of real gaming acceleration.
