@@ -71,7 +71,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val notificationCenter = AppNotificationCenter(appContext)
     private var liveMetricsJob: Job? = null
     private var squadSyncJob: Job? = null
+    private var directSyncJob: Job? = null
     private var squadLastEventId = 0L
+    private var directLastEventId = 0L
     private var squadInitialSyncDone = false
     private var pendingVoiceOfferSender: String? = null
     private var pendingVoiceOfferPayload: String? = null
@@ -338,6 +340,76 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(friends = social.friends)
         debugLog("Добавлен друг: $name")
         addEvent("Друзья", "Добавлен $name")
+    }
+
+
+    fun openDirectChat(peer: String) {
+        val normalized = peer.trim()
+        if (normalized.isBlank() || normalized == _state.value.localUserId) return
+        directSyncJob?.cancel()
+        directLastEventId = 0L
+        _state.value = _state.value.copy(
+            directPeerId = normalized,
+            directMessages = emptyList(),
+            directSyncError = null,
+        )
+        startDirectSync()
+    }
+
+    fun closeDirectChat() {
+        directSyncJob?.cancel()
+        directSyncJob = null
+        directLastEventId = 0L
+        _state.value = _state.value.copy(
+            directPeerId = null,
+            directMessages = emptyList(),
+            directSyncError = null,
+        )
+    }
+
+    fun sendDirectMessage(text: String) {
+        val message = text.trim()
+        val snapshot = _state.value
+        val peer = snapshot.directPeerId ?: return
+        if (message.isBlank()) return
+        if (!snapshot.controlPlaneUrl.startsWith("https://")) {
+            _state.value = snapshot.copy(directSyncError = "Для личного чата нужен Control API HTTPS")
+            return
+        }
+
+        viewModelScope.launch {
+            runCatching {
+                squadApi.sendDirectChat(
+                    baseUrl = _state.value.controlPlaneUrl,
+                    peer = peer,
+                    sender = _state.value.localUserId,
+                    text = message.take(1000),
+                )
+            }.onSuccess { event ->
+                directLastEventId = maxOf(directLastEventId, event.id)
+                val chat = SquadChatMessage(
+                    id = event.id,
+                    sender = event.sender,
+                    text = event.text,
+                    createdAt = event.createdAt,
+                )
+                _state.value = _state.value.copy(
+                    directMessages = (_state.value.directMessages + chat)
+                        .distinctBy { it.id }
+                        .sortedBy { it.id }
+                        .takeLast(MAX_DIRECT_MESSAGES),
+                    directSyncError = null,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    directSyncError = error.message ?: "Не удалось отправить личное сообщение",
+                )
+            }
+        }
+    }
+
+    fun refreshDirectChat() {
+        startDirectSync()
     }
 
     fun shareSquadInvite() {
@@ -1407,6 +1479,62 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun startDirectSync() {
+        directSyncJob?.cancel()
+        directSyncJob = null
+
+        val peer = _state.value.directPeerId ?: return
+        directSyncJob = viewModelScope.launch {
+            while (_state.value.directPeerId == peer) {
+                val snapshot = _state.value
+                val baseUrl = snapshot.controlPlaneUrl
+                if (!baseUrl.startsWith("https://")) {
+                    _state.value = snapshot.copy(
+                        directSyncError = "Укажи Control API HTTPS, чтобы включить личный чат",
+                    )
+                    delay(DIRECT_SYNC_INTERVAL_MS)
+                    continue
+                }
+
+                runCatching {
+                    squadApi.fetchDirectEvents(
+                        baseUrl = baseUrl,
+                        self = snapshot.localUserId,
+                        peer = peer,
+                        after = directLastEventId,
+                    )
+                }.onSuccess { events ->
+                    if (events.isNotEmpty()) {
+                        directLastEventId = maxOf(directLastEventId, events.maxOf { it.id })
+                    }
+                    val chats = events
+                        .filter { it.type == "chat" && it.text.isNotBlank() }
+                        .map {
+                            SquadChatMessage(
+                                id = it.id,
+                                sender = it.sender,
+                                text = it.text,
+                                createdAt = it.createdAt,
+                            )
+                        }
+                    _state.value = _state.value.copy(
+                        directMessages = (_state.value.directMessages + chats)
+                            .distinctBy { it.id }
+                            .sortedBy { it.id }
+                            .takeLast(MAX_DIRECT_MESSAGES),
+                        directSyncError = null,
+                    )
+                }.onFailure { error ->
+                    _state.value = _state.value.copy(
+                        directSyncError = error.message ?: "Ошибка синхронизации личного чата",
+                    )
+                }
+
+                delay(DIRECT_SYNC_INTERVAL_MS)
+            }
+        }
+    }
+
     private fun startSquadSync(resetCursor: Boolean = false) {
         squadSyncJob?.cancel()
         squadSyncJob = null
@@ -1567,6 +1695,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         squadSyncJob?.cancel()
+        directSyncJob?.cancel()
         liveMetricsJob?.cancel()
         voiceController.release()
         super.onCleared()
@@ -1583,6 +1712,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val SQUAD_SYNC_INTERVAL_MS = 3_000L
         private const val SQUAD_VOICE_SYNC_INTERVAL_MS = 750L
         private const val MAX_SQUAD_MESSAGES = 100
+        private const val DIRECT_SYNC_INTERVAL_MS = 3_000L
+        private const val MAX_DIRECT_MESSAGES = 100
         private const val MAX_PENDING_VOICE_ICE = 64
     }
 }
