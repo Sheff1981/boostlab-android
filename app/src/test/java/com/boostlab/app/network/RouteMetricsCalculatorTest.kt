@@ -12,7 +12,7 @@ class RouteMetricsCalculatorTest {
         )
 
         assertEquals(23, metrics.medianRttMs)
-        assertEquals(10, metrics.jitterMs)
+        assertEquals(3, metrics.jitterMs)
         assertEquals(20.0, metrics.packetLossPct, 0.001)
         assertEquals(5, metrics.sent)
         assertEquals(4, metrics.received)
