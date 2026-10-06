@@ -73,7 +73,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<BoostState> = _state.asStateFlow()
 
     val apps: List<BoostApp> = repository.loadLaunchableApps()
-    val catalogGames = GameCatalogRepository.games
+    val catalogGames: List<com.boostlab.app.model.CatalogGame>
+        get() = (GameCatalogRepository.games + _state.value.remoteCatalogGames)
+            .distinctBy { it.title.lowercase() }
 
     init {
         val saved = profileStore.load()
@@ -144,6 +146,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             restoreTunnelOrRefreshRoute(saved)
         }
         startSquadSync()
+        refreshRemoteCatalog()
     }
 
     fun selectApp(app: BoostApp) {
@@ -391,6 +394,24 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshRemoteCatalog() {
+        val baseUrl = _state.value.controlPlaneUrl
+        if (!baseUrl.startsWith("https://")) return
+
+        viewModelScope.launch {
+            runCatching { controlPlane.fetchGames(baseUrl) }
+                .onSuccess { games ->
+                    _state.value = _state.value.copy(remoteCatalogGames = games)
+                    if (games.isNotEmpty()) {
+                        debugLog("Удалённый каталог игр обновлён: ${games.size}")
+                    }
+                }
+                .onFailure { error ->
+                    debugLog("Не удалось обновить каталог игр: ${error::class.java.simpleName}")
+                }
+        }
+    }
+
     fun openStoreSearch(query: String) {
         val encoded = Uri.encode(query)
         val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=$encoded&c=apps"))
@@ -538,8 +559,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             probeError = null,
         )
         persistProfile()
-        if (value.trim().startsWith("https://") && _state.value.squadCode != null) {
-            startSquadSync(resetCursor = false)
+        if (value.trim().startsWith("https://")) {
+            refreshRemoteCatalog()
+            if (_state.value.squadCode != null) {
+                startSquadSync(resetCursor = false)
+            }
         }
     }
 
