@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.boostlab.app.data.InstalledAppsRepository
+import com.boostlab.app.data.PrivateProfileStore
+import com.boostlab.app.data.PrivateServerProfile
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.network.ControlPlaneClient
@@ -28,6 +30,7 @@ import kotlinx.coroutines.launch
 class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val repository = InstalledAppsRepository(appContext)
+    private val profileStore = PrivateProfileStore(appContext)
     private val routeProbe = UdpRouteProbe()
     private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
@@ -40,6 +43,27 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     val apps: List<BoostApp> = repository.loadLaunchableApps()
 
     init {
+        val saved = profileStore.load()
+        val savedApp = saved.selectedPackage?.let { packageName ->
+            apps.firstOrNull { it.packageName == packageName }
+        }
+
+        _state.value = _state.value.copy(
+            selectedApp = savedApp,
+            controlPlaneUrl = saved.controlPlaneUrl,
+            gatewayHost = saved.gatewayHost,
+            gatewayPort = saved.gatewayPort,
+            wireGuardServerPublicKey = saved.wireGuardServerPublicKey,
+            wireGuardPort = saved.wireGuardPort,
+            tunnelAddress = saved.tunnelAddress,
+            dnsServer = saved.dnsServer,
+            serverLabel = if (saved.gatewayHost.isNotBlank()) {
+                "Сохранённый сервер: ${saved.gatewayHost}"
+            } else {
+                "Сервер ещё не настроен"
+            },
+        )
+
         runCatching { identityStore.loadOrCreate() }
             .onSuccess { identity ->
                 _state.value = _state.value.copy(
@@ -60,6 +84,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             selectedApp = app,
             tunnelError = null,
         )
+        persistProfile()
+    }
+
+    fun toggleAdvancedSettings() {
+        _state.value = _state.value.copy(
+            showAdvancedSettings = !_state.value.showAdvancedSettings,
+        )
     }
 
     fun updateControlPlaneUrl(value: String) {
@@ -67,6 +98,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             controlPlaneUrl = value.trim(),
             probeError = null,
         )
+        persistProfile()
     }
 
     fun updateGatewayHost(value: String) {
@@ -77,6 +109,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             probeError = null,
             tunnelError = null,
         )
+        persistProfile()
     }
 
     fun updateWireGuardServerPublicKey(value: String) {
@@ -84,6 +117,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             wireGuardServerPublicKey = value.trim(),
             tunnelError = null,
         )
+        persistProfile()
     }
 
     fun updateTunnelAddress(value: String) {
@@ -91,6 +125,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             tunnelAddress = value.trim(),
             tunnelError = null,
         )
+        persistProfile()
     }
 
     fun updateDnsServer(value: String) {
@@ -98,6 +133,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             dnsServer = value.trim(),
             tunnelError = null,
         )
+        persistProfile()
     }
 
     fun discoverLanGateway() {
@@ -167,6 +203,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     serverLabel = "Локальный gateway: ${best.node.host}",
                     probeError = null,
                 )
+                persistProfile()
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     isLanDiscovering = false,
@@ -251,6 +288,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     serverLabel = "Автовыбор: ${best.node.region} · ${best.node.id}",
                     probeError = null,
                 )
+                persistProfile()
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     isAutoSelecting = false,
@@ -383,6 +421,22 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
         }
+    }
+
+    private fun persistProfile() {
+        val snapshot = _state.value
+        profileStore.save(
+            PrivateServerProfile(
+                selectedPackage = snapshot.selectedApp?.packageName,
+                controlPlaneUrl = snapshot.controlPlaneUrl,
+                gatewayHost = snapshot.gatewayHost,
+                gatewayPort = snapshot.gatewayPort,
+                wireGuardServerPublicKey = snapshot.wireGuardServerPublicKey,
+                wireGuardPort = snapshot.wireGuardPort,
+                tunnelAddress = snapshot.tunnelAddress,
+                dnsServer = snapshot.dnsServer,
+            ),
+        )
     }
 
     companion object {
