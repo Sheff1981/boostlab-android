@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.boostlab.app.data.BoostHistoryStore
 import com.boostlab.app.data.DiagnosticLogStore
+import com.boostlab.app.data.EventStore
 import com.boostlab.app.data.GameCatalogRepository
 import com.boostlab.app.data.GameProfileStore
 import com.boostlab.app.data.InstalledAppsRepository
@@ -51,6 +52,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val userSettingsStore = UserSettingsStore(appContext)
     private val diagnosticLogStore = DiagnosticLogStore(appContext)
     private val boostHistoryStore = BoostHistoryStore(appContext)
+    private val eventStore = EventStore(appContext)
     private val socialStore = SocialStore(appContext)
     private val routeProbe = UdpRouteProbe()
     private val lanDiscovery = LanGatewayDiscovery()
@@ -100,6 +102,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             customDnsEnabled = userSettings.customDnsEnabled,
             customDnsServers = userSettings.customDnsServers,
             diagnosticLogEntries = diagnosticLogStore.load(),
+            appEvents = eventStore.load(),
             localUserId = social.userId,
             squadCode = social.squadCode,
             friends = social.friends,
@@ -152,6 +155,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         refreshGameReadiness()
         persistProfile()
         debugLog("Выбрано приложение: ${app.label} [${app.packageName}]")
+        addEvent("Игра", "Выбрана ${app.label}")
     }
 
     fun togglePinnedApp(app: BoostApp) {
@@ -260,6 +264,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             friends = social.friends,
         )
         debugLog("Создан локальный отряд: ${social.squadCode}")
+        addEvent("Отряд", "Создан ${social.squadCode}")
     }
 
     fun joinSquad(code: String) {
@@ -272,6 +277,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             friends = social.friends,
         )
         debugLog("Выбран код отряда: $normalized")
+        addEvent("Отряд", "Присоединение по коду $normalized")
     }
 
     fun leaveSquad() {
@@ -290,11 +296,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val social = socialStore.addFriend(name)
         _state.value = _state.value.copy(friends = social.friends)
         debugLog("Добавлен друг: $name")
+        addEvent("Друзья", "Добавлен $name")
     }
 
     fun shareSquadInvite() {
         val code = _state.value.squadCode ?: return
-        shareText("BOOSTLAB отряд", "Присоединяйся к моему отряду BOOSTLAB. Код: $code")
+        shareText(
+            "BOOSTLAB отряд",
+            "Присоединяйся к моему отряду BOOSTLAB. Код: $code\nboostlab://squad/$code",
+        )
     }
 
     fun openStoreSearch(query: String) {
@@ -316,6 +326,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     fun clearDiagnosticLog() {
         diagnosticLogStore.clear()
         _state.value = _state.value.copy(diagnosticLogEntries = emptyList())
+    }
+
+    fun clearAppEvents() {
+        eventStore.clear()
+        _state.value = _state.value.copy(appEvents = emptyList())
     }
 
     fun shareApp() {
@@ -1014,6 +1029,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             jitterMs = snapshot.jitterMs,
             packetLossPct = snapshot.packetLossPct,
         )
+    }
+
+    private fun addEvent(title: String, message: String) {
+        eventStore.append(title, message)
+        _state.value = _state.value.copy(appEvents = eventStore.load())
     }
 
     private fun debugLog(message: String) {
