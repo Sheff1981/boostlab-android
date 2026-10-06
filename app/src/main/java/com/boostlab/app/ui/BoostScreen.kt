@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.boostlab.app.model.BoostApp
+import com.boostlab.app.model.PlanTier
 import java.util.Locale
 
 private val BgTop = Color(0xFF071426)
@@ -151,7 +152,7 @@ private fun PlanCard(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = if (state.planTier.name == "PREMIUM") {
+                    text = if (state.planTier == PlanTier.PREMIUM) {
                         "BOOSTLAB Premium"
                     } else {
                         "BOOSTLAB Free"
@@ -160,7 +161,7 @@ private fun PlanCard(
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = if (state.planTier.name == "PREMIUM") {
+                    text = if (state.planTier == PlanTier.PREMIUM) {
                         "Без рекламы · приоритетные маршруты"
                     } else {
                         "Бесплатный доступ · реклама оплачивает инфраструктуру"
@@ -171,7 +172,7 @@ private fun PlanCard(
             }
 
             Text(
-                text = if (state.planTier.name == "PREMIUM") "PREMIUM" else "FREE",
+                text = if (state.planTier == PlanTier.PREMIUM) "PREMIUM" else "FREE",
                 color = Cyan,
                 fontWeight = FontWeight.Bold,
             )
