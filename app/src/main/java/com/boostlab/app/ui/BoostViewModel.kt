@@ -157,6 +157,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
         startSquadSync()
         refreshRemoteCatalog()
+        refreshVoiceInfrastructure()
     }
 
     fun selectApp(app: BoostApp) {
@@ -431,6 +432,39 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 .onFailure { error ->
                     debugLog("Не удалось обновить каталог игр: ${error::class.java.simpleName}")
+                }
+        }
+    }
+
+
+    fun refreshVoiceInfrastructure() {
+        val baseUrl = _state.value.controlPlaneUrl
+        if (!baseUrl.startsWith("https://")) {
+            _state.value = _state.value.copy(
+                voiceIceServerCount = 0,
+                voiceTurnAvailable = false,
+                voiceInfrastructureError = "Control API HTTPS не настроен",
+            )
+            return
+        }
+
+        viewModelScope.launch {
+            runCatching { squadApi.fetchVoiceIce(baseUrl) }
+                .onSuccess { servers ->
+                    _state.value = _state.value.copy(
+                        voiceIceServerCount = servers.sumOf { it.urls.size },
+                        voiceTurnAvailable = servers.any { server ->
+                            server.urls.any { it.startsWith("turn:") || it.startsWith("turns:") }
+                        },
+                        voiceInfrastructureError = null,
+                    )
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        voiceIceServerCount = 0,
+                        voiceTurnAvailable = false,
+                        voiceInfrastructureError = error.message ?: "Не удалось проверить Voice ICE",
+                    )
                 }
         }
     }
@@ -743,6 +777,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         persistProfile()
         if (value.trim().startsWith("https://")) {
             refreshRemoteCatalog()
+            refreshVoiceInfrastructure()
             if (_state.value.squadCode != null) {
                 startSquadSync(resetCursor = false)
             }
