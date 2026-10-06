@@ -1,5 +1,7 @@
 package com.boostlab.app.network
 
+import com.boostlab.app.model.CatalogGame
+import com.boostlab.app.model.GameCatalogTag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -52,6 +54,40 @@ class ControlPlaneClient {
                     }
                 }
             }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    suspend fun fetchGames(baseUrl: String): List<CatalogGame> = withContext(Dispatchers.IO) {
+        val normalized = normalizeBaseUrl(baseUrl)
+        val connection = openGet("$normalized/v1/games")
+
+        try {
+            val code = connection.responseCode
+            require(code == HttpURLConnection.HTTP_OK) {
+                "Control API returned HTTP $code"
+            }
+
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONArray(body)
+            buildList {
+                for (index in 0 until json.length()) {
+                    val item = json.getJSONObject(index)
+                    val title = item.optString("title").trim()
+                    if (title.isBlank()) continue
+                    val tags = buildSet {
+                        val rawTags = item.optJSONArray("tags") ?: JSONArray()
+                        for (tagIndex in 0 until rawTags.length()) {
+                            when (rawTags.optString(tagIndex).uppercase()) {
+                                "HOT" -> add(GameCatalogTag.HOT)
+                                "NEW" -> add(GameCatalogTag.NEW)
+                            }
+                        }
+                    }
+                    add(CatalogGame(title = title, tags = tags))
+                }
+            }.distinctBy { it.title.lowercase() }
         } finally {
             connection.disconnect()
         }
