@@ -1554,6 +1554,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         stopLiveMetrics()
         liveMetricsJob = viewModelScope.launch {
             var consecutiveProbeFailures = 0
+            var intelligenceCycle = 0
+            var cachedGatewayToGame: com.boostlab.app.network.RouteMetrics? = null
+            var cachedDirectToGame: com.boostlab.app.network.RouteMetrics? = null
 
             while (_state.value.isBoosting) {
                 val snapshot = _state.value
@@ -1604,29 +1607,99 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                runCatching {
+                val accessResult = runCatching {
                     routeProbe.measure(
                         host = snapshot.gatewayHost,
                         port = snapshot.gatewayPort,
                         samples = LIVE_METRICS_SAMPLES,
                     )
-                }.onSuccess { metrics ->
-                    consecutiveProbeFailures = if (metrics.received > 0) 0 else consecutiveProbeFailures + 1
+                }
+                val accessMetrics = accessResult.getOrNull()
+
+                if (accessMetrics != null) {
+                    consecutiveProbeFailures =
+                        if (accessMetrics.received > 0) 0 else consecutiveProbeFailures + 1
+
+                    val intelligenceReady =
+                        snapshot.routeRecommendation == "BOOST" &&
+                            !snapshot.selectedRouteApiUrl.isNullOrBlank() &&
+                            !snapshot.routeTargetId.isNullOrBlank() &&
+                            !snapshot.routeTargetHost.isNullOrBlank() &&
+                            snapshot.routeTargetPort != null
+
+                    if (
+                        intelligenceReady &&
+                        (
+                            intelligenceCycle % LIVE_ROUTE_REFRESH_CYCLES == 0 ||
+                                cachedGatewayToGame == null ||
+                                cachedDirectToGame == null
+                            )
+                    ) {
+                        cachedGatewayToGame = runCatching {
+                            gatewayRouteQuality.fetch(
+                                routeApiUrl = requireNotNull(snapshot.selectedRouteApiUrl),
+                                targetId = requireNotNull(snapshot.routeTargetId),
+                            ).metrics
+                        }.getOrElse { cachedGatewayToGame }
+
+                        cachedDirectToGame = runCatching {
+                            directRouteProbe.measure(
+                                host = requireNotNull(snapshot.routeTargetHost),
+                                port = requireNotNull(snapshot.routeTargetPort),
+                                samples = LIVE_DIRECT_ROUTE_SAMPLES,
+                            )
+                        }.getOrElse { cachedDirectToGame }
+                    }
+
+                    intelligenceCycle += 1
+
+                    val endToEndMetrics = cachedGatewayToGame?.let { gameLeg ->
+                        RouteIntelligence.combine(accessMetrics, gameLeg)
+                    } ?: accessMetrics
+                    val directMetrics = cachedDirectToGame
+                    val gainMs = if (
+                        directMetrics?.medianRttMs != null &&
+                        endToEndMetrics.medianRttMs != null
+                    ) {
+                        directMetrics.medianRttMs - endToEndMetrics.medianRttMs
+                    } else {
+                        snapshot.routeGainMs
+                    }
+
                     if (_state.value.isBoosting) {
                         val verified = _state.value.gameTrafficVerified || trafficVerifiedNow
                         _state.value = _state.value.copy(
-                            pingMs = metrics.medianRttMs,
-                            jitterMs = metrics.jitterMs,
-                            packetLossPct = metrics.packetLossPct,
+                            pingMs = endToEndMetrics.medianRttMs,
+                            p95PingMs = endToEndMetrics.p95RttMs,
+                            jitterMs = endToEndMetrics.jitterMs,
+                            packetLossPct = endToEndMetrics.packetLossPct,
+                            directPingMs = directMetrics?.medianRttMs ?: _state.value.directPingMs,
+                            directP95Ms = directMetrics?.p95RttMs ?: _state.value.directP95Ms,
+                            directJitterMs = directMetrics?.jitterMs ?: _state.value.directJitterMs,
+                            directPacketLossPct = directMetrics?.packetLossPct
+                                ?: _state.value.directPacketLossPct,
+                            boostedEstimatedPingMs = endToEndMetrics.medianRttMs,
+                            boostedEstimatedP95Ms = endToEndMetrics.p95RttMs,
+                            routeGainMs = gainMs,
                             routeProbeFailures = consecutiveProbeFailures,
                             routeHealth = when {
                                 consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES -> "DEGRADED"
+                                verified && cachedGatewayToGame != null -> "GAME_ROUTE"
                                 verified -> "TRAFFIC"
                                 else -> "CONNECTED"
                             },
+                            serverLabel = if (
+                                gainMs != null &&
+                                gainMs > 0 &&
+                                snapshot.routeRecommendation == "BOOST"
+                            ) {
+                                "BEST ROUTE: ${snapshot.selectedGatewayRegion ?: "Gateway"} · −$gainMs ms"
+                            } else {
+                                _state.value.serverLabel
+                            },
                         )
                     }
-                }.onFailure {
+                } else {
                     consecutiveProbeFailures += 1
                     if (_state.value.isBoosting) {
                         _state.value = _state.value.copy(
@@ -1968,5 +2041,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_DIRECT_MESSAGES = 100
         private const val MAX_PENDING_VOICE_ICE = 64
         private const val DIRECT_ROUTE_SAMPLES = 7
+        private const val LIVE_DIRECT_ROUTE_SAMPLES = 3
+        private const val LIVE_ROUTE_REFRESH_CYCLES = 2
     }
 }
