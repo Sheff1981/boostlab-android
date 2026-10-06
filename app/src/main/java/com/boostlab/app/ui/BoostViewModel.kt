@@ -71,7 +71,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private var squadLastEventId = 0L
     private var pendingVoiceOfferSender: String? = null
     private var pendingVoiceOfferPayload: String? = null
-    private val pendingIncomingVoiceIce = mutableListOf<String>()
+    private val pendingIncomingVoiceIce = mutableListOf<Pair<String, String>>()
     private var trafficBaselineRx = 0L
     private var trafficBaselineTx = 0L
 
@@ -471,9 +471,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     signalSink = signalSink,
                     stateSink = stateSink,
                 )
-                pendingIncomingVoiceIce.forEach { icePayload ->
-                    voiceController.handleSignal(sender, "voice_ice", icePayload)
-                }
+                pendingIncomingVoiceIce
+                    .filter { it.first == sender }
+                    .forEach { (_, icePayload) ->
+                        voiceController.handleSignal(sender, "voice_ice", icePayload)
+                    }
                 pendingIncomingVoiceIce.clear()
             }.onFailure { error ->
                 _state.value = _state.value.copy(
@@ -1293,8 +1295,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             "voice_ice" -> {
-                if (_state.value.voiceCallState == "RINGING" && pendingVoiceOfferSender == sender) {
-                    pendingIncomingVoiceIce += payload
+                if (
+                    _state.value.voiceCallState == "RINGING" && pendingVoiceOfferSender == sender ||
+                    _state.value.voiceCallState in setOf("IDLE", "FAILED")
+                ) {
+                    pendingIncomingVoiceIce += sender to payload
+                    if (pendingIncomingVoiceIce.size > MAX_PENDING_VOICE_ICE) {
+                        pendingIncomingVoiceIce.removeAt(0)
+                    }
                 } else {
                     voiceController.handleSignal(sender, type, payload)
                 }
@@ -1464,5 +1472,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val SQUAD_SYNC_INTERVAL_MS = 3_000L
         private const val SQUAD_VOICE_SYNC_INTERVAL_MS = 750L
         private const val MAX_SQUAD_MESSAGES = 100
+        private const val MAX_PENDING_VOICE_ICE = 64
     }
 }
