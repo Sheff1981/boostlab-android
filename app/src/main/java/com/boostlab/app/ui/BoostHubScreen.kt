@@ -538,6 +538,15 @@ private fun SquadPage(
                         color = HubMuted,
                         fontSize = 11.sp,
                     )
+                    Text(
+                        "ICE: ${state.voiceIceServerCount} · TURN fallback: " +
+                            if (state.voiceTurnAvailable) "готов" else "не настроен",
+                        color = if (state.voiceTurnAvailable) HubMint else HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    state.voiceInfrastructureError?.let {
+                        Text(it, color = HubError, fontSize = 10.sp)
+                    }
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Статус: ${voiceStateLabel(state.voiceCallState)}",
