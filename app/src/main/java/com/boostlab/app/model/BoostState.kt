@@ -3,6 +3,16 @@ package com.boostlab.app.model
 data class BoostState(
     val selectedApp: BoostApp? = null,
     val showAdvancedSettings: Boolean = false,
+
+    val isGameLaunching: Boolean = false,
+    val gameLaunchError: String? = null,
+    val gameBoostMessage: String = "Готов к запуску",
+    val availableMemoryMb: Long? = null,
+    val deviceLowMemory: Boolean? = null,
+    val powerSaveMode: Boolean? = null,
+    val thermalStatus: Int? = null,
+
+    // Legacy name kept for compatibility: this flag now means VPN/network boost is active.
     val isBoosting: Boolean = false,
     val isTunnelConnecting: Boolean = false,
     val tunnelError: String? = null,
