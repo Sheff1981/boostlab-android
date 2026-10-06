@@ -455,6 +455,7 @@ private fun SquadPage(
     var joinCode by rememberSaveable { mutableStateOf("") }
     var friend by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
+    var directMessage by rememberSaveable { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -675,6 +676,69 @@ private fun SquadPage(
             }
         }
 
+        if (state.directPeerId != null) {
+            item {
+                Panel {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Личный чат · ${state.directPeerId}",
+                            color = Color.White,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = viewModel::closeDirectChat) { Text("Закрыть") }
+                    }
+                    state.directSyncError?.let {
+                        Text(it, color = HubError, fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (state.directMessages.isEmpty()) {
+                        Text("Сообщений пока нет.", color = HubMuted, fontSize = 12.sp)
+                    } else {
+                        state.directMessages.takeLast(20).forEach { chat ->
+                            val mine = chat.sender == state.localUserId
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+                            ) {
+                                Text(
+                                    if (mine) "Ты" else chat.sender,
+                                    color = if (mine) HubCyan else HubMint,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Text(chat.text, color = Color.White, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = directMessage,
+                        onValueChange = { directMessage = it.take(1000) },
+                        label = { Text("Личное сообщение") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = viewModel::refreshDirectChat,
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Обновить") }
+                        Button(
+                            onClick = {
+                                viewModel.sendDirectMessage(directMessage)
+                                directMessage = ""
+                            },
+                            enabled = directMessage.isNotBlank() &&
+                                state.controlPlaneUrl.startsWith("https://"),
+                            modifier = Modifier.weight(1f),
+                        ) { Text("Отправить") }
+                    }
+                }
+            }
+        }
+
         item {
             Panel {
                 Text("Друзья", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -698,8 +762,22 @@ private fun SquadPage(
                     Spacer(Modifier.width(6.dp))
                     Text("Добавить друга")
                 }
-                state.friends.forEach {
-                    Text("• $it", color = Color.White, modifier = Modifier.padding(top = 8.dp))
+                state.friends.forEach { friendId ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            friendId,
+                            color = Color.White,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        OutlinedButton(onClick = { viewModel.openDirectChat(friendId) }) {
+                            Text("Чат")
+                        }
+                    }
                 }
             }
         }
