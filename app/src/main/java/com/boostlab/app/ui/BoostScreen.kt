@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material3.Button
@@ -23,6 +24,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,185 +50,66 @@ fun BoostScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Cyan,
+            secondary = Purple,
+            background = BgTop,
+            surface = CardBg,
+        ),
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 18.dp, vertical = 20.dp),
+                .background(Brush.verticalGradient(listOf(BgTop, BgBottom))),
         ) {
-            Text(
-                text = "BOOSTLAB",
-                color = Color.White,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            Text(
-                text = "Автовыбор лучшего маршрута",
-                color = Color(0xFF9FB4C9),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-
-            Spacer(Modifier.height(18.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = CardBg),
-                shape = RoundedCornerShape(22.dp),
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 18.dp,
+                    vertical = 20.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(Modifier.padding(18.dp)) {
-                    Text("Stage 3 · выбор gateway", color = Cyan, fontWeight = FontWeight.Bold)
-
-                    Spacer(Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = state.controlPlaneUrl,
-                        onValueChange = viewModel::updateControlPlaneUrl,
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("Control API (HTTPS)") },
-                        placeholder = { Text("https://control.example.com") },
-                        supportingText = {
-                            Text("Приложение получит список доступных серверов")
-                        },
-                    )
-
-                    Button(
-                        onClick = viewModel::autoSelectGateway,
-                        enabled = state.controlPlaneUrl.startsWith("https://") &&
-                            !state.isAutoSelecting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
+                item {
+                    Column {
                         Text(
-                            if (state.isAutoSelecting) {
-                                "Ищем лучший сервер…"
-                            } else {
-                                "Выбрать лучший автоматически"
-                            },
+                            text = "BOOSTLAB",
+                            color = Color.White,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
                         )
-                    }
-
-                    if (state.discoveredNodes > 0) {
                         Text(
-                            text = "Найдено серверов: ${state.discoveredNodes}",
+                            text = "Per-app encrypted route optimizer",
                             color = Color(0xFF9FB4C9),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 6.dp),
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                     }
+                }
 
-                    Spacer(Modifier.height(14.dp))
+                item {
+                    RouteCard(
+                        state = state,
+                        viewModel = viewModel,
+                    )
+                }
 
+                item {
+                    TunnelCard(
+                        state = state,
+                        viewModel = viewModel,
+                        onRequestVpnPermission = onRequestVpnPermission,
+                    )
+                }
+
+                item {
                     Text(
-                        text = "Ручная проверка",
+                        "Приложения",
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold,
                     )
-
-                    OutlinedTextField(
-                        value = state.gatewayHost,
-                        onValueChange = viewModel::updateGatewayHost,
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text("IP или имя gateway") },
-                        placeholder = { Text("например 203.0.113.10") },
-                        supportingText = {
-                            Text("UDP-порт ${state.gatewayPort}")
-                        },
-                    )
-
-                    Button(
-                        onClick = viewModel::probeGateway,
-                        enabled = state.gatewayHost.isNotBlank() &&
-                            !state.isProbing &&
-                            !state.isAutoSelecting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (state.isProbing) "Проверяем…" else "Проверить этот сервер")
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-                    Text(state.serverLabel, color = Color.White)
-
-                    state.probeError?.let {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            it,
-                            color = Color(0xFFFFA8A8),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        MetricCard(
-                            title = "PING",
-                            value = state.pingMs?.let { "${it} ms" } ?: "—",
-                            modifier = Modifier.weight(1f),
-                        )
-                        MetricCard(
-                            title = "JITTER",
-                            value = state.jitterMs?.let { "${it} ms" } ?: "—",
-                            modifier = Modifier.weight(1f),
-                        )
-                        MetricCard(
-                            title = "LOSS",
-                            value = state.packetLossPct?.let {
-                                String.format(Locale.US, "%.1f%%", it)
-                            } ?: "—",
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-                    Text(
-                        text = state.selectedApp?.let { "Выбрано: ${it.label}" }
-                            ?: "Выбери приложение ниже",
-                        color = Color.White,
-                    )
-                    Spacer(Modifier.height(10.dp))
-
-                    Button(
-                        onClick = {
-                            if (state.isBoosting) {
-                                viewModel.stopBooster()
-                            } else {
-                                onRequestVpnPermission()
-                            }
-                        },
-                        enabled = state.selectedApp != null,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (state.isBoosting) Purple else Cyan,
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        androidx.compose.material3.Icon(
-                            Icons.Default.Bolt,
-                            contentDescription = null,
-                        )
-                        Text(if (state.isBoosting) " Остановить" else " Подготовить VPN")
-                    }
-
-                    Text(
-                        text = "Пока измеряем и выбираем маршрут. Игровой трафик ещё не перенаправляется.",
-                        color = Color(0xFF9FB4C9),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
                 }
-            }
 
-            Spacer(Modifier.height(18.dp))
-            Text("Приложения", color = Color.White, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(8.dp))
-
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(viewModel.apps, key = { it.packageName }) { app ->
                     AppRow(
                         app = app,
@@ -235,6 +118,264 @@ fun BoostScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RouteCard(
+    state: com.boostlab.app.model.BoostState,
+    viewModel: BoostViewModel,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CardBg),
+        shape = RoundedCornerShape(22.dp),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text(
+                "Stage 4 · выбор маршрута",
+                color = Cyan,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            OutlinedTextField(
+                value = state.controlPlaneUrl,
+                onValueChange = viewModel::updateControlPlaneUrl,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Control API (HTTPS)") },
+                placeholder = { Text("https://control.example.com") },
+            )
+
+            Button(
+                onClick = viewModel::autoSelectGateway,
+                enabled = state.controlPlaneUrl.startsWith("https://") &&
+                    !state.isAutoSelecting,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    if (state.isAutoSelecting) {
+                        "Ищем лучший сервер…"
+                    } else {
+                        "Выбрать лучший автоматически"
+                    },
+                )
+            }
+
+            if (state.discoveredNodes > 0) {
+                Text(
+                    text = "Найдено серверов: ${state.discoveredNodes}",
+                    color = Color(0xFF9FB4C9),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = state.gatewayHost,
+                onValueChange = viewModel::updateGatewayHost,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Gateway IP / host") },
+                supportingText = { Text("Probe UDP ${state.gatewayPort}") },
+            )
+
+            Button(
+                onClick = viewModel::probeGateway,
+                enabled = state.gatewayHost.isNotBlank() &&
+                    !state.isProbing &&
+                    !state.isAutoSelecting,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (state.isProbing) "Проверяем…" else "Проверить маршрут")
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(state.serverLabel, color = Color.White)
+
+            state.probeError?.let {
+                Text(
+                    text = it,
+                    color = Color(0xFFFFA8A8),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MetricCard(
+                    title = "PING",
+                    value = state.pingMs?.let { "${it} ms" } ?: "—",
+                    modifier = Modifier.weight(1f),
+                )
+                MetricCard(
+                    title = "JITTER",
+                    value = state.jitterMs?.let { "${it} ms" } ?: "—",
+                    modifier = Modifier.weight(1f),
+                )
+                MetricCard(
+                    title = "LOSS",
+                    value = state.packetLossPct?.let {
+                        String.format(Locale.US, "%.1f%%", it)
+                    } ?: "—",
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TunnelCard(
+    state: com.boostlab.app.model.BoostState,
+    viewModel: BoostViewModel,
+    onRequestVpnPermission: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = CardBg),
+        shape = RoundedCornerShape(22.dp),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Text(
+                "WireGuard · выбранное приложение",
+                color = Cyan,
+                fontWeight = FontWeight.Bold,
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            Text(
+                text = state.selectedApp?.let { "Приложение: ${it.label}" }
+                    ?: "Сначала выбери приложение ниже",
+                color = Color.White,
+            )
+
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Публичный ключ этого телефона",
+                color = Color(0xFF9FB4C9),
+                style = MaterialTheme.typography.labelMedium,
+            )
+
+            SelectionContainer {
+                Text(
+                    text = state.clientPublicKey ?: "Ключ недоступен",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            state.identityError?.let {
+                Text(
+                    text = it,
+                    color = Color(0xFFFFA8A8),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            OutlinedTextField(
+                value = state.wireGuardServerPublicKey,
+                onValueChange = viewModel::updateWireGuardServerPublicKey,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Публичный ключ сервера") },
+            )
+
+            OutlinedTextField(
+                value = state.tunnelAddress,
+                onValueChange = viewModel::updateTunnelAddress,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Адрес телефона в туннеле") },
+                supportingText = { Text("Например 10.77.0.2/32") },
+            )
+
+            OutlinedTextField(
+                value = state.dnsServer,
+                onValueChange = viewModel::updateDnsServer,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("DNS через туннель") },
+            )
+
+            Text(
+                text = "WireGuard UDP ${state.wireGuardPort}",
+                color = Color(0xFF9FB4C9),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 6.dp),
+            )
+
+            state.tunnelError?.let {
+                Text(
+                    text = it,
+                    color = Color(0xFFFFA8A8),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            Button(
+                onClick = {
+                    if (state.isBoosting) {
+                        viewModel.disconnectTunnel()
+                    } else {
+                        onRequestVpnPermission()
+                    }
+                },
+                enabled = !state.isTunnelConnecting &&
+                    (
+                        state.isBoosting ||
+                            (
+                                state.selectedApp != null &&
+                                    state.gatewayHost.isNotBlank() &&
+                                    state.wireGuardServerPublicKey.isNotBlank() &&
+                                    state.clientPublicKey != null
+                                )
+                        ),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (state.isBoosting) Purple else Cyan,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                androidx.compose.material3.Icon(
+                    Icons.Default.Bolt,
+                    contentDescription = null,
+                )
+                Text(
+                    when {
+                        state.isTunnelConnecting -> " Подключаем…"
+                        state.isBoosting -> " Отключить буст"
+                        else -> " Подключить буст"
+                    },
+                )
+            }
+
+            Text(
+                text = if (state.isBoosting) {
+                    "WireGuard поднят. Через него направляется только выбранное приложение."
+                } else {
+                    "Туннель включится только после настройки реального WireGuard peer на gateway."
+                },
+                color = Color(0xFF9FB4C9),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }
