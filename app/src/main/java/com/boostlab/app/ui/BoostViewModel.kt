@@ -320,6 +320,23 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         shareText("BOOSTLAB", "BOOSTLAB — игровой бустер и Network Boost для Android.")
     }
 
+    fun shareFeedbackReport() {
+        val snapshot = _state.value
+        val metrics = "ping=${snapshot.pingMs ?: "-"}ms, jitter=${snapshot.jitterMs ?: "-"}ms, loss=${snapshot.packetLossPct ?: "-"}%"
+        val game = snapshot.selectedApp?.label ?: "не выбрана"
+        val body = buildString {
+            appendLine("BOOSTLAB feedback")
+            appendLine("Игра: $game")
+            appendLine("Режим: ${snapshot.boostMode}")
+            appendLine("Регион: ${snapshot.preferredRegion}")
+            appendLine("Узел: ${snapshot.selectedGatewayRegion ?: "-"} / ${snapshot.selectedGatewayId ?: "-"}")
+            appendLine("Метрики: $metrics")
+            appendLine()
+            appendLine("Опиши проблему ниже:")
+        }
+        shareText("BOOSTLAB feedback", body)
+    }
+
     fun cycleGameLaunchMode() {
         val snapshot = _state.value
         val selectedApp = snapshot.selectedApp ?: return
@@ -582,7 +599,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                 GatewayMeasurement(
                                     node = node,
                                     metrics = metrics,
-                                    score = RouteScorer.score(metrics),
+                                    score = routeScore(metrics, _state.value.boostMode),
                                 )
                             }.getOrNull()
                         }
