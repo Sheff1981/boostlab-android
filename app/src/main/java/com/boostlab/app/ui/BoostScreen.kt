@@ -21,6 +21,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -32,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.boostlab.app.model.BoostApp
+import java.util.Locale
 
 private val BgTop = Color(0xFF071426)
 private val BgBottom = Color(0xFF0B2038)
@@ -63,7 +65,7 @@ fun BoostScreen(
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                text = "Локальный буст",
+                text = "Маршрут для выбранного приложения",
                 color = Color(0xFF9FB4C9),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -76,20 +78,69 @@ fun BoostScreen(
                 shape = RoundedCornerShape(22.dp),
             ) {
                 Column(Modifier.padding(18.dp)) {
-                    Text("Stage 1", color = Cyan, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(6.dp))
+                    Text("Stage 2 · измерение маршрута", color = Cyan, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = state.gatewayHost,
+                        onValueChange = viewModel::updateGatewayHost,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("IP или имя сервера") },
+                        placeholder = { Text("например 203.0.113.10") },
+                        supportingText = {
+                            Text("UDP-порт ${state.gatewayPort}")
+                        },
+                    )
+
+                    Button(
+                        onClick = viewModel::probeGateway,
+                        enabled = state.gatewayHost.isNotBlank() && !state.isProbing,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (state.isProbing) "Проверяем…" else "Проверить сервер")
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Text(state.serverLabel, color = Color.White)
+
+                    state.probeError?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text(it, color = Color(0xFFFFA8A8), style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        MetricCard(
+                            title = "PING",
+                            value = state.pingMs?.let { "${it} ms" } ?: "—",
+                            modifier = Modifier.weight(1f),
+                        )
+                        MetricCard(
+                            title = "JITTER",
+                            value = state.jitterMs?.let { "${it} ms" } ?: "—",
+                            modifier = Modifier.weight(1f),
+                        )
+                        MetricCard(
+                            title = "LOSS",
+                            value = state.packetLossPct?.let {
+                                String.format(Locale.US, "%.1f%%", it)
+                            } ?: "—",
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    Spacer(Modifier.height(16.dp))
                     Text(
                         text = state.selectedApp?.let { "Выбрано: ${it.label}" }
-                            ?: "Выбери приложение для ускорения",
+                            ?: "Выбери приложение ниже",
                         color = Color.White,
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = state.serverLabel,
-                        color = Color(0xFF9FB4C9),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(10.dp))
+
                     Button(
                         onClick = {
                             if (state.isBoosting) {
@@ -108,8 +159,15 @@ fun BoostScreen(
                             Icons.Default.Bolt,
                             contentDescription = null,
                         )
-                        Text(if (state.isBoosting) " Остановить" else " Буст")
+                        Text(if (state.isBoosting) " Остановить" else " Подготовить VPN")
                     }
+
+                    Text(
+                        text = "Трафик пока не перенаправляется: сначала проверяем реальный gateway.",
+                        color = Color(0xFF9FB4C9),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
                 }
             }
 
@@ -126,6 +184,29 @@ fun BoostScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MetricCard(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF102842)),
+        shape = RoundedCornerShape(14.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 10.dp, horizontal = 8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(title, color = Color(0xFF8EA7BD), style = MaterialTheme.typography.labelSmall)
+            Text(value, color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
