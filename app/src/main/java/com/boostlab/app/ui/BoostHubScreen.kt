@@ -83,7 +83,11 @@ private enum class HubTab { GAMES, BOOST, STATS, SQUAD, PROFILE }
 private enum class CatalogTab { HOT, NEW, ALL }
 
 @Composable
-fun BoostHubScreen(viewModel: BoostViewModel, onRequestVpnPermission: () -> Unit) {
+fun BoostHubScreen(
+    viewModel: BoostViewModel,
+    onRequestVpnPermission: () -> Unit,
+    onRequestAudioPermission: () -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     var tabName by rememberSaveable { mutableStateOf(HubTab.BOOST.name) }
     val tab = runCatching { HubTab.valueOf(tabName) }.getOrDefault(HubTab.BOOST)
@@ -137,7 +141,7 @@ fun BoostHubScreen(viewModel: BoostViewModel, onRequestVpnPermission: () -> Unit
                 HubTab.GAMES -> GamesPage(viewModel, state, padding)
                 HubTab.BOOST -> BoostPage(viewModel, state, padding, onRequestVpnPermission)
                 HubTab.STATS -> StatsPage(viewModel, state, padding)
-                HubTab.SQUAD -> SquadPage(viewModel, state, padding)
+                HubTab.SQUAD -> SquadPage(viewModel, state, padding, onRequestAudioPermission)
                 HubTab.PROFILE -> ProfilePage(viewModel, state, padding)
             }
         }
@@ -434,7 +438,12 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
 }
 
 @Composable
-private fun SquadPage(viewModel: BoostViewModel, state: BoostState, padding: PaddingValues) {
+private fun SquadPage(
+    viewModel: BoostViewModel,
+    state: BoostState,
+    padding: PaddingValues,
+    onRequestAudioPermission: () -> Unit,
+) {
     var joinCode by rememberSaveable { mutableStateOf("") }
     var friend by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf("") }
@@ -503,6 +512,83 @@ private fun SquadPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 }
             }
         }
+
+        if (state.squadCode != null) {
+            item {
+                Panel {
+                    Text("Голосовой чат", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "P2P WebRTC · signaling через BOOSTLAB Control",
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Статус: ${voiceStateLabel(state.voiceCallState)}",
+                        color = when (state.voiceCallState) {
+                            "CONNECTED" -> HubMint
+                            "FAILED" -> HubError
+                            else -> HubCyan
+                        },
+                        fontWeight = FontWeight.Bold,
+                    )
+                    state.voicePeerId?.let {
+                        Text("Собеседник: $it", color = HubMuted, fontSize = 11.sp)
+                    }
+                    state.voiceError?.let {
+                        Spacer(Modifier.height(4.dp))
+                        Text(it, color = HubError, fontSize = 11.sp)
+                    }
+                    Spacer(Modifier.height(10.dp))
+
+                    when (state.voiceCallState) {
+                        "RINGING" -> {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = onRequestAudioPermission,
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = HubMint),
+                                ) {
+                                    Text("Ответить", color = HubNight, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = viewModel::rejectVoiceCall,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text("Отклонить")
+                                }
+                            }
+                        }
+
+                        "CALLING", "CONNECTING", "RECONNECTING", "CONNECTED" -> {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = viewModel::toggleVoiceMute,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(if (state.voiceMuted) "Включить микрофон" else "Выключить микрофон")
+                                }
+                                Button(
+                                    onClick = viewModel::hangupVoiceCall,
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.buttonColors(containerColor = HubError),
+                                ) {
+                                    Text("Завершить", color = HubNight, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        else -> {
+                            PrimaryButton(
+                                text = "Позвонить участнику",
+                                enabled = state.controlPlaneUrl.startsWith("https://") &&
+                                    state.squadOnlineUsers.any { it != state.localUserId },
+                                onClick = onRequestAudioPermission,
+                            )
+                        }
+                    }
+                }
+            }
 
         if (state.squadCode != null) {
             item {
@@ -1007,4 +1093,15 @@ private fun formatDuration(seconds: Long): String {
     } else {
         String.format(Locale.US, "%d:%02d", minutes, secs)
     }
+}
+
+
+private fun voiceStateLabel(state: String): String = when (state) {
+    "RINGING" -> "входящий звонок"
+    "CALLING" -> "вызываем"
+    "CONNECTING" -> "соединяем"
+    "RECONNECTING" -> "восстанавливаем связь"
+    "CONNECTED" -> "соединено"
+    "FAILED" -> "ошибка"
+    else -> "готов"
 }
