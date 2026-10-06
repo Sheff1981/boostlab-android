@@ -190,7 +190,18 @@ fun BoostScreen(
                             item {
                                 SelectedGameCard(
                                     state = state,
-                                    onBoostClick = {
+                                    onBoostClick = viewModel::boostAndLaunchGame,
+                                )
+                            }
+
+                            item {
+                                DeviceReadinessRow(state)
+                            }
+
+                            item {
+                                VpnModeCard(
+                                    state = state,
+                                    onToggle = {
                                         if (state.isBoosting) {
                                             viewModel.disconnectTunnel()
                                         } else {
@@ -198,10 +209,6 @@ fun BoostScreen(
                                         }
                                     },
                                 )
-                            }
-
-                            item {
-                                MetricsRow(state)
                             }
 
                             item {
@@ -534,15 +541,15 @@ private fun HeroNetworkSection(
 
             HeroFeature(
                 icon = Icons.Default.Bolt,
-                text = "Стабильный\nпинг",
+                text = "Запуск\nв один тап",
             )
             HeroFeature(
                 icon = Icons.Default.NetworkCheck,
-                text = "Умная\nмаршрутизация",
+                text = "Проверка\nтелефона",
             )
             HeroFeature(
                 icon = Icons.Default.Shield,
-                text = "Более стабильная\nигра",
+                text = "VPN отдельно\nпо желанию",
             )
         }
     }
@@ -752,19 +759,7 @@ private fun SelectedGameCard(
     onBoostClick: () -> Unit,
 ) {
     val selected = state.selectedApp
-    val serverReady =
-        state.gatewayHost.isNotBlank() &&
-            state.wireGuardServerPublicKey.isNotBlank() &&
-            state.clientPublicKey != null
-    val boostEnabled =
-        !state.isTunnelConnecting &&
-            !state.isAutoSelecting &&
-            !state.isProbing &&
-            !state.isLanDiscovering &&
-            (
-                state.isBoosting ||
-                    (selected != null && serverReady)
-                )
+    val boostEnabled = selected != null && !state.isGameLaunching
 
     Box(
         modifier = Modifier
@@ -816,8 +811,7 @@ private fun SelectedGameCard(
                                 .clip(CircleShape)
                                 .background(
                                     when {
-                                        state.isBoosting -> Mint
-                                        serverReady -> Mint
+                                        selected != null -> Mint
                                         else -> Color(0xFFFFB04A)
                                     },
                                 ),
@@ -825,15 +819,11 @@ private fun SelectedGameCard(
                         Spacer(Modifier.width(7.dp))
                         Text(
                             text = when {
-                                state.isBoosting -> "Буст активен"
-                                state.isAutoSelecting || state.isProbing -> "Подбираем сервер…"
-                                serverReady -> "Готов к запуску"
-                                else -> "Сервер не настроен"
+                                selected == null -> "Выбери игру"
+                                state.isGameLaunching -> "Подготавливаем запуск…"
+                                else -> state.gameBoostMessage
                             },
-                            color = when {
-                                state.isBoosting || serverReady -> Mint
-                                else -> Color(0xFFFFC16F)
-                            },
+                            color = if (selected != null) Mint else Color(0xFFFFC16F),
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                         )
@@ -844,17 +834,17 @@ private fun SelectedGameCard(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SmallPill(
                             icon = Icons.Default.NetworkCheck,
-                            text = if (state.selectedGatewayId != null) "Авто сервер" else "Сервер",
+                            text = state.availableMemoryMb?.let { "RAM: ${it} MB" } ?: "RAM: —",
                         )
                         SmallPill(
                             icon = Icons.Default.Public,
-                            text = state.selectedGatewayRegion ?: "Авто",
+                            text = if (state.isBoosting) "VPN ON" else "VPN OFF",
                         )
                     }
                 }
             }
 
-            state.tunnelError?.let {
+            state.gameLaunchError?.let {
                 Text(
                     text = it,
                     color = Error,
@@ -867,12 +857,11 @@ private fun SelectedGameCard(
 
             GradientBoostButton(
                 text = when {
-                    state.isTunnelConnecting -> "Подключаем…"
-                    state.isBoosting -> "Отключить"
-                    else -> "Буст"
+                    state.isGameLaunching -> "Запускаем…"
+                    else -> "BOOST · ЗАПУСТИТЬ"
                 },
                 enabled = boostEnabled,
-                active = state.isBoosting,
+                active = false,
                 onClick = onBoostClick,
             )
         }
@@ -963,6 +952,127 @@ private fun GradientBoostButton(
                 fontWeight = FontWeight.Black,
             )
         }
+    }
+}
+
+@Composable
+private fun DeviceReadinessRow(state: BoostState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        MetricCard(
+            icon = Icons.Default.Bolt,
+            title = "RAM",
+            value = state.availableMemoryMb?.let { "${it} MB" } ?: "—",
+            accent = if (state.deviceLowMemory == true) Error else Mint,
+            modifier = Modifier.weight(1f),
+        )
+        MetricCard(
+            icon = Icons.Default.Settings,
+            title = "ПИТАНИЕ",
+            value = when (state.powerSaveMode) {
+                true -> "SAVE"
+                false -> "OK"
+                null -> "—"
+            },
+            accent = if (state.powerSaveMode == true) Color(0xFFFFC16F) else Cyan,
+            modifier = Modifier.weight(1f),
+        )
+        MetricCard(
+            icon = Icons.Default.Gamepad,
+            title = "НАГРЕВ",
+            value = thermalLabel(state.thermalStatus),
+            accent = when {
+                state.thermalStatus == null -> Muted
+                state.thermalStatus >= 3 -> Error
+                else -> Violet
+            },
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+private fun thermalLabel(status: Int?): String = when (status) {
+    null -> "—"
+    0 -> "OK"
+    1 -> "LIGHT"
+    2 -> "WARM"
+    3 -> "HOT"
+    4 -> "SEVERE"
+    5 -> "CRIT"
+    else -> "HOT"
+}
+
+@Composable
+private fun VpnModeCard(
+    state: BoostState,
+    onToggle: () -> Unit,
+) {
+    val serverReady =
+        state.selectedApp != null &&
+            state.gatewayHost.isNotBlank() &&
+            state.wireGuardServerPublicKey.isNotBlank() &&
+            state.clientPublicKey != null
+    val enabled = !state.isTunnelConnecting && (state.isBoosting || serverReady)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color(0xD60A1730))
+            .border(1.dp, Color(0xFF284765), RoundedCornerShape(22.dp))
+            .padding(16.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Shield,
+                contentDescription = null,
+                tint = if (state.isBoosting) Mint else Cyan,
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "VPN / Network Boost",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp,
+                )
+                Text(
+                    text = when {
+                        state.isBoosting -> "Включён только для выбранной игры"
+                        serverReady -> "Дополнительно. Для обычного BOOST не нужен."
+                        else -> "Не настроен. Обычный BOOST работает без него."
+                    },
+                    color = Muted,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+
+        state.tunnelError?.let {
+            Text(
+                text = it,
+                color = Error,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        SecondaryAction(
+            text = when {
+                state.isTunnelConnecting -> "Подключаем VPN…"
+                state.isBoosting -> "Отключить VPN"
+                else -> "Включить VPN"
+            },
+            enabled = enabled,
+            onClick = onToggle,
+        )
     }
 }
 
