@@ -40,6 +40,9 @@ data class BoostState(
     val voicePeerId: String? = null,
     val voiceMuted: Boolean = false,
     val voiceError: String? = null,
+    val voiceIceServerCount: Int = 0,
+    val voiceTurnAvailable: Boolean = false,
+    val voiceInfrastructureError: String? = null,
 
     // Legacy name kept for compatibility: this flag now means VPN/network boost is active.
     val isBoosting: Boolean = false,
