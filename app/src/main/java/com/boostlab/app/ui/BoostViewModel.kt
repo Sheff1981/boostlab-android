@@ -743,7 +743,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     endpointHost = snapshot.gatewayHost,
                     endpointPort = snapshot.wireGuardPort,
                     addressCidr = snapshot.tunnelAddress,
-                    dnsServer = snapshot.dnsServer,
+                    dnsServer = activeDnsValue(snapshot),
                     selectedPackage = selectedApp.packageName,
                 )
                 tunnelController.connect(profile)
@@ -771,6 +771,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
 
                 if (tunnelState == Tunnel.State.UP) {
+                    _state.value = _state.value.copy(
+                        boostStartedAtEpochMs = _state.value.boostStartedAtEpochMs ?: System.currentTimeMillis(),
+                    )
                     debugLog("Network Boost: handshake подтверждён · " + snapshot.gatewayHost)
                     startLiveMetrics()
                     if (_state.value.autoLaunchAfterNetworkBoost) {
@@ -809,6 +812,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { tunnelController.disconnect() }
                 .onSuccess {
+                    val history = recordBoostSessionIfNeeded()
                     trafficBaselineRx = 0L
                     trafficBaselineTx = 0L
                     _state.value = _state.value.copy(
@@ -820,6 +824,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         gameTrafficVerified = false,
                         routeHealth = "IDLE",
                         routeProbeFailures = 0,
+                        boostStartedAtEpochMs = null,
+                        boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
+                        totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
+                        lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
+                        lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
+                        lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
+                        lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
                     )
                     debugLog("Network Boost отключён; системный маршрут восстановлен")
                 }
@@ -852,6 +863,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = _state.value.copy(
                 isBoosting = true,
                 isTunnelConnecting = false,
+                boostStartedAtEpochMs = System.currentTimeMillis(),
                 tunnelError = null,
                 serverLabel = "Буст активен · ${saved.gatewayHost}",
                 tunnelRxBytes = traffic?.rxBytes ?: 0L,
@@ -868,7 +880,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { tunnelController.disconnect() }
         }
 
-        if (saved.controlPlaneUrl.startsWith("https://")) {
+        if (saved.controlPlaneUrl.startsWith("https://") && _state.value.autoSelectBestNode) {
             autoSelectGateway()
         } else if (saved.gatewayHost.isNotBlank()) {
             probeGateway()
@@ -886,6 +898,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
                 when (runCatching { tunnelController.state() }.getOrNull()) {
                     Tunnel.State.DOWN -> {
+                        val history = recordBoostSessionIfNeeded()
                         trafficBaselineRx = 0L
                         trafficBaselineTx = 0L
                         _state.value = _state.value.copy(
@@ -897,6 +910,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             tunnelTxBytes = 0L,
                             gameTrafficVerified = false,
                             routeHealth = "DOWN",
+                            boostStartedAtEpochMs = null,
+                            boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
+                            totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
+                            lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
+                            lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
+                            lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
+                            lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
                         )
                         break
                     }
