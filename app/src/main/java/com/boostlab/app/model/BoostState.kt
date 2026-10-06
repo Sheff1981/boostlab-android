@@ -70,6 +70,17 @@ data class BoostState(
     val isLanDiscovering: Boolean = false,
     val lanGatewayCount: Int = 0,
     val discoveredNodes: Int = 0,
+    val routeCandidatesTested: Int = 0,
+    val routeRecommendation: String = "UNKNOWN",
+    val routeTargetId: String? = null,
+    val routeTargetHost: String? = null,
+    val directPingMs: Int? = null,
+    val directP95Ms: Int? = null,
+    val directJitterMs: Int? = null,
+    val directPacketLossPct: Double? = null,
+    val boostedEstimatedPingMs: Int? = null,
+    val boostedEstimatedP95Ms: Int? = null,
+    val routeGainMs: Int? = null,
     val selectedGatewayId: String? = null,
     val selectedGatewayRegion: String? = null,
 
@@ -80,6 +91,7 @@ data class BoostState(
     val serverLabel: String = "Сервер ещё не задан",
 
     val pingMs: Int? = null,
+    val p95PingMs: Int? = null,
     val jitterMs: Int? = null,
     val packetLossPct: Double? = null,
 
