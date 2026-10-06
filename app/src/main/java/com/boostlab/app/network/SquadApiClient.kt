@@ -79,6 +79,57 @@ class SquadApiClient {
         payload: String,
     ): RemoteSquadEvent = sendEvent(baseUrl, code, sender, type, "", payload)
 
+
+    suspend fun sendDirectChat(
+        baseUrl: String,
+        peer: String,
+        sender: String,
+        text: String,
+    ): RemoteSquadEvent = withContext(Dispatchers.IO) {
+        val body = JSONObject()
+            .put("sender", sender)
+            .put("text", text)
+            .toString()
+        val encodedPeer = java.net.URLEncoder.encode(peer.trim(), Charsets.UTF_8.name())
+        val connection = open(
+            "${normalizeBaseUrl(baseUrl)}/v1/direct/$encodedPeer/events",
+            "POST",
+        )
+        try {
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            require(connection.responseCode == HttpURLConnection.HTTP_CREATED) {
+                "Direct message HTTP ${connection.responseCode}"
+            }
+            parseEvent(JSONObject(connection.inputStream.bufferedReader().use { it.readText() }))
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    suspend fun fetchDirectEvents(
+        baseUrl: String,
+        self: String,
+        peer: String,
+        after: Long,
+    ): List<RemoteSquadEvent> = withContext(Dispatchers.IO) {
+        val encodedSelf = java.net.URLEncoder.encode(self.trim(), Charsets.UTF_8.name())
+        val encodedPeer = java.net.URLEncoder.encode(peer.trim(), Charsets.UTF_8.name())
+        val connection = open(
+            "${normalizeBaseUrl(baseUrl)}/v1/direct/$encodedPeer/events?self=$encodedSelf&after=$after",
+            "GET",
+        )
+        try {
+            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                "Direct events HTTP ${connection.responseCode}"
+            }
+            parseEvents(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     suspend fun fetchEvents(baseUrl: String, code: String, after: Long): List<RemoteSquadEvent> =
         withContext(Dispatchers.IO) {
             val url = "${normalizeBaseUrl(baseUrl)}/v1/squads/${code.trim()}/events?after=$after"
