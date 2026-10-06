@@ -87,6 +87,7 @@ fun BoostHubScreen(
     viewModel: BoostViewModel,
     onRequestVpnPermission: () -> Unit,
     onRequestAudioPermission: () -> Unit,
+    onRequestNotificationPermission: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     var tabName by rememberSaveable { mutableStateOf(HubTab.BOOST.name) }
@@ -141,7 +142,13 @@ fun BoostHubScreen(
                 HubTab.GAMES -> GamesPage(viewModel, state, padding)
                 HubTab.BOOST -> BoostPage(viewModel, state, padding, onRequestVpnPermission)
                 HubTab.STATS -> StatsPage(viewModel, state, padding)
-                HubTab.SQUAD -> SquadPage(viewModel, state, padding, onRequestAudioPermission)
+                HubTab.SQUAD -> SquadPage(
+                    viewModel,
+                    state,
+                    padding,
+                    onRequestAudioPermission,
+                    onRequestNotificationPermission,
+                )
                 HubTab.PROFILE -> ProfilePage(viewModel, state, padding)
             }
         }
@@ -443,6 +450,7 @@ private fun SquadPage(
     state: BoostState,
     padding: PaddingValues,
     onRequestAudioPermission: () -> Unit,
+    onRequestNotificationPermission: () -> Unit,
 ) {
     var joinCode by rememberSaveable { mutableStateOf("") }
     var friend by rememberSaveable { mutableStateOf("") }
@@ -459,6 +467,14 @@ private fun SquadPage(
                 "Твой ID: ${state.localUserId.ifBlank { "создаётся…" }}",
                 "Текстовый чат, online-presence и WebRTC voice используют наш Control API для signaling. Аудио идёт напрямую между телефонами.",
             )
+        }
+        item {
+            OutlinedButton(
+                onClick = onRequestNotificationPermission,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Включить уведомления")
+            }
         }
         item {
             Panel {
