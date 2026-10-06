@@ -21,9 +21,51 @@ data class RemoteSquadPresence(
     val seenAt: String,
 )
 
+data class RemoteIceServer(
+    val urls: List<String>,
+    val username: String,
+    val credential: String,
+)
+
 class SquadApiClient {
     suspend fun sendChat(baseUrl: String, code: String, sender: String, text: String): RemoteSquadEvent =
         sendEvent(baseUrl, code, sender, "chat", text, "")
+
+
+    suspend fun fetchVoiceIce(baseUrl: String): List<RemoteIceServer> = withContext(Dispatchers.IO) {
+        val connection = open("${normalizeBaseUrl(baseUrl)}/v1/voice/ice", "GET")
+        try {
+            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                "Voice ICE HTTP ${connection.responseCode}"
+            }
+            val root = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            val array = root.optJSONArray("ice_servers") ?: JSONArray()
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    val rawUrls = item.optJSONArray("urls") ?: JSONArray()
+                    val urls = buildList {
+                        for (urlIndex in 0 until rawUrls.length()) {
+                            rawUrls.optString(urlIndex).trim()
+                                .takeIf { it.startsWith("stun:") || it.startsWith("turn:") || it.startsWith("turns:") }
+                                ?.let(::add)
+                        }
+                    }.distinct()
+                    if (urls.isNotEmpty()) {
+                        add(
+                            RemoteIceServer(
+                                urls = urls,
+                                username = item.optString("username"),
+                                credential = item.optString("credential"),
+                            ),
+                        )
+                    }
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     suspend fun sendSignal(
         baseUrl: String,
