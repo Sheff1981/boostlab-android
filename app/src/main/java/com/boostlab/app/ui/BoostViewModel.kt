@@ -59,6 +59,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val tunnelController = WireGuardTunnelController(appContext)
     private val gameBoostEngine = GameBoostEngine(appContext)
     private var liveMetricsJob: Job? = null
+    private var trafficBaselineRx = 0L
+    private var trafficBaselineTx = 0L
 
     private val _state = MutableStateFlow(BoostState())
     val state: StateFlow<BoostState> = _state.asStateFlow()
@@ -480,7 +482,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun discoverLanGateway() {
         val current = _state.value
-        if (current.isLanDiscovering || current.isAutoSelecting || current.isProbing) return
+        if (
+            current.isLanDiscovering ||
+            current.isAutoSelecting ||
+            current.isProbing ||
+            current.isBoosting ||
+            current.isTunnelConnecting
+        ) return
 
         _state.value = current.copy(
             isLanDiscovering = true,
@@ -558,7 +566,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun autoSelectGateway() {
         val current = _state.value
-        if (current.controlPlaneUrl.isBlank() || current.isAutoSelecting) return
+        if (
+            current.controlPlaneUrl.isBlank() ||
+            current.isAutoSelecting ||
+            current.isBoosting ||
+            current.isTunnelConnecting
+        ) return
 
         _state.value = current.copy(
             isAutoSelecting = true,
@@ -717,6 +730,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = snapshot.copy(
             isTunnelConnecting = true,
             tunnelError = null,
+            routeHealth = "CONNECTING",
+            routeProbeFailures = 0,
         )
 
         viewModelScope.launch {
@@ -724,29 +739,39 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 val identity = identityStore.loadOrCreate()
                 val profile = TunnelProfile(
                     privateKey = identity.privateKeyBase64,
-                    serverPublicKey = _state.value.wireGuardServerPublicKey,
-                    endpointHost = _state.value.gatewayHost,
-                    endpointPort = _state.value.wireGuardPort,
-                    addressCidr = _state.value.tunnelAddress,
-                    dnsServer = activeDnsValue(_state.value),
+                    serverPublicKey = snapshot.wireGuardServerPublicKey,
+                    endpointHost = snapshot.gatewayHost,
+                    endpointPort = snapshot.wireGuardPort,
+                    addressCidr = snapshot.tunnelAddress,
+                    dnsServer = snapshot.dnsServer,
                     selectedPackage = selectedApp.packageName,
                 )
                 tunnelController.connect(profile)
             }.onSuccess { tunnelState ->
+                val traffic = if (tunnelState == Tunnel.State.UP) {
+                    runCatching {
+                        tunnelController.traffic(snapshot.wireGuardServerPublicKey)
+                    }.getOrNull()
+                } else {
+                    null
+                }
+
+                trafficBaselineRx = traffic?.rxBytes ?: 0L
+                trafficBaselineTx = traffic?.txBytes ?: 0L
+
                 _state.value = _state.value.copy(
                     isTunnelConnecting = false,
                     isBoosting = tunnelState == Tunnel.State.UP,
-                    tunnelError = if (tunnelState == Tunnel.State.UP) {
-                        null
-                    } else {
-                        "WireGuard tunnel did not reach UP state"
-                    },
+                    tunnelError = if (tunnelState == Tunnel.State.UP) null else "WireGuard tunnel did not reach UP state",
+                    tunnelRxBytes = traffic?.rxBytes ?: 0L,
+                    tunnelTxBytes = traffic?.txBytes ?: 0L,
+                    gameTrafficVerified = false,
+                    routeHealth = if (tunnelState == Tunnel.State.UP) "CONNECTED" else "DOWN",
+                    routeProbeFailures = 0,
                 )
+
                 if (tunnelState == Tunnel.State.UP) {
-                    _state.value = _state.value.copy(
-                        boostStartedAtEpochMs = _state.value.boostStartedAtEpochMs ?: System.currentTimeMillis(),
-                    )
-                    debugLog("Network Boost подключён: ${_state.value.gatewayHost}")
+                    debugLog("Network Boost: handshake подтверждён · " + snapshot.gatewayHost)
                     startLiveMetrics()
                     if (_state.value.autoLaunchAfterNetworkBoost) {
                         boostAndLaunchGame()
@@ -756,10 +781,17 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onFailure { error ->
                 stopLiveMetrics()
+                trafficBaselineRx = 0L
+                trafficBaselineTx = 0L
                 _state.value = _state.value.copy(
                     isTunnelConnecting = false,
                     isBoosting = false,
                     tunnelError = "WireGuard connect failed: ${error::class.java.simpleName}",
+                    tunnelRxBytes = 0L,
+                    tunnelTxBytes = 0L,
+                    gameTrafficVerified = false,
+                    routeHealth = "DOWN",
+                    routeProbeFailures = 0,
                 )
             }
         }
@@ -777,20 +809,19 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { tunnelController.disconnect() }
                 .onSuccess {
-                    val history = recordBoostSessionIfNeeded()
+                    trafficBaselineRx = 0L
+                    trafficBaselineTx = 0L
                     _state.value = _state.value.copy(
                         isTunnelConnecting = false,
                         isBoosting = false,
                         tunnelError = null,
-                        boostStartedAtEpochMs = null,
-                        boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
-                        totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
-                        lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
-                        lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
-                        lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
-                        lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
+                        tunnelRxBytes = 0L,
+                        tunnelTxBytes = 0L,
+                        gameTrafficVerified = false,
+                        routeHealth = "IDLE",
+                        routeProbeFailures = 0,
                     )
-                    debugLog("Network Boost отключён")
+                    debugLog("Network Boost отключён; системный маршрут восстановлен")
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(
@@ -813,12 +844,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 saved.wireGuardServerPublicKey.isNotBlank()
 
         if (canRestoreActiveSession) {
+            val traffic = runCatching {
+                tunnelController.traffic(saved.wireGuardServerPublicKey)
+            }.getOrNull()
+            trafficBaselineRx = traffic?.rxBytes ?: 0L
+            trafficBaselineTx = traffic?.txBytes ?: 0L
             _state.value = _state.value.copy(
                 isBoosting = true,
                 isTunnelConnecting = false,
-                boostStartedAtEpochMs = System.currentTimeMillis(),
                 tunnelError = null,
                 serverLabel = "Буст активен · ${saved.gatewayHost}",
+                tunnelRxBytes = traffic?.rxBytes ?: 0L,
+                tunnelTxBytes = traffic?.txBytes ?: 0L,
+                gameTrafficVerified = false,
+                routeHealth = "CONNECTED",
+                routeProbeFailures = 0,
             )
             startLiveMetrics()
             return
@@ -828,7 +868,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { tunnelController.disconnect() }
         }
 
-        if (saved.controlPlaneUrl.startsWith("https://") && _state.value.autoSelectBestNode) {
+        if (saved.controlPlaneUrl.startsWith("https://")) {
             autoSelectGateway()
         } else if (saved.gatewayHost.isNotBlank()) {
             probeGateway()
@@ -838,29 +878,47 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private fun startLiveMetrics() {
         stopLiveMetrics()
         liveMetricsJob = viewModelScope.launch {
+            var consecutiveProbeFailures = 0
+
             while (_state.value.isBoosting) {
                 val snapshot = _state.value
                 if (snapshot.gatewayHost.isBlank()) break
 
                 when (runCatching { tunnelController.state() }.getOrNull()) {
                     Tunnel.State.DOWN -> {
-                        val history = recordBoostSessionIfNeeded()
+                        trafficBaselineRx = 0L
+                        trafficBaselineTx = 0L
                         _state.value = _state.value.copy(
                             isBoosting = false,
-                            boostStartedAtEpochMs = null,
-                            boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
-                            totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
-                            lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
-                            lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
-                            lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
-                            lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
                             isTunnelConnecting = false,
                             serverLabel = "Буст отключён",
                             tunnelError = "VPN-туннель остановлен",
+                            tunnelRxBytes = 0L,
+                            tunnelTxBytes = 0L,
+                            gameTrafficVerified = false,
+                            routeHealth = "DOWN",
                         )
                         break
                     }
                     else -> Unit
+                }
+
+                val traffic = runCatching {
+                    tunnelController.traffic(snapshot.wireGuardServerPublicKey)
+                }.getOrNull()
+
+                val transferredSinceConnect = traffic?.let {
+                    (it.rxBytes - trafficBaselineRx).coerceAtLeast(0L) +
+                        (it.txBytes - trafficBaselineTx).coerceAtLeast(0L)
+                } ?: 0L
+                val trafficVerifiedNow = transferredSinceConnect >= TRAFFIC_VERIFY_MIN_BYTES
+
+                if (traffic != null && _state.value.isBoosting) {
+                    _state.value = _state.value.copy(
+                        tunnelRxBytes = traffic.rxBytes,
+                        tunnelTxBytes = traffic.txBytes,
+                        gameTrafficVerified = _state.value.gameTrafficVerified || trafficVerifiedNow,
+                    )
                 }
 
                 runCatching {
@@ -870,11 +928,31 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         samples = LIVE_METRICS_SAMPLES,
                     )
                 }.onSuccess { metrics ->
+                    consecutiveProbeFailures = if (metrics.received > 0) 0 else consecutiveProbeFailures + 1
                     if (_state.value.isBoosting) {
+                        val verified = _state.value.gameTrafficVerified || trafficVerifiedNow
                         _state.value = _state.value.copy(
                             pingMs = metrics.medianRttMs,
                             jitterMs = metrics.jitterMs,
                             packetLossPct = metrics.packetLossPct,
+                            routeProbeFailures = consecutiveProbeFailures,
+                            routeHealth = when {
+                                consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES -> "DEGRADED"
+                                verified -> "TRAFFIC"
+                                else -> "CONNECTED"
+                            },
+                        )
+                    }
+                }.onFailure {
+                    consecutiveProbeFailures += 1
+                    if (_state.value.isBoosting) {
+                        _state.value = _state.value.copy(
+                            routeProbeFailures = consecutiveProbeFailures,
+                            routeHealth = if (consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES) {
+                                "DEGRADED"
+                            } else {
+                                _state.value.routeHealth
+                            },
                         )
                     }
                 }
@@ -958,5 +1036,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val LAN_AUTO_SAMPLES = 4
         private const val LIVE_METRICS_SAMPLES = 4
         private const val LIVE_METRICS_INTERVAL_MS = 5_000L
+        private const val TRAFFIC_VERIFY_MIN_BYTES = 1_024L
+        private const val MAX_LIVE_PROBE_FAILURES = 3
     }
 }
