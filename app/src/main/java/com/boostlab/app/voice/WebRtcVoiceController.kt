@@ -23,6 +23,7 @@ class WebRtcVoiceController(context: Context) {
     private var peer: PeerConnection? = null
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
+    private val pendingRemoteIce = mutableListOf<IceCandidate>()
 
     private var localUserId: String = ""
     private var peerUserId: String = ""
@@ -80,6 +81,7 @@ class WebRtcVoiceController(context: Context) {
         connection.setRemoteDescription(
             object : SimpleSdpObserver() {
                 override fun onSetSuccess() {
+                    flushPendingIce()
                     connection.createAnswer(
                         object : SimpleSdpObserver() {
                             override fun onCreateSuccess(description: SessionDescription) {
@@ -128,6 +130,7 @@ class WebRtcVoiceController(context: Context) {
                 peer?.setRemoteDescription(
                     object : SimpleSdpObserver() {
                         override fun onSetSuccess() {
+                            flushPendingIce()
                             state("CONNECTING", null)
                         }
 
@@ -140,15 +143,19 @@ class WebRtcVoiceController(context: Context) {
             }
 
             "voice_ice" -> {
-                val candidate = payload.optString("candidate")
-                if (candidate.isBlank()) return
-                peer?.addIceCandidate(
-                    IceCandidate(
-                        payload.optString("sdp_mid").ifBlank { null },
-                        payload.optInt("sdp_mline_index", 0),
-                        candidate,
-                    ),
+                val candidateText = payload.optString("candidate")
+                if (candidateText.isBlank()) return
+                val candidate = IceCandidate(
+                    payload.optString("sdp_mid").ifBlank { null },
+                    payload.optInt("sdp_mline_index", 0),
+                    candidateText,
                 )
+                val connection = peer
+                if (connection == null || connection.remoteDescription == null) {
+                    pendingRemoteIce += candidate
+                } else {
+                    connection.addIceCandidate(candidate)
+                }
             }
 
             "voice_hangup" -> closePeer(sendHangup = false)
@@ -253,6 +260,13 @@ class WebRtcVoiceController(context: Context) {
         override fun onAddTrack(receiver: RtpReceiver, mediaStreams: Array<out MediaStream>) = Unit
     }
 
+    private fun flushPendingIce() {
+        val connection = peer ?: return
+        if (connection.remoteDescription == null) return
+        pendingRemoteIce.forEach { connection.addIceCandidate(it) }
+        pendingRemoteIce.clear()
+    }
+
     private fun sendDescription(type: String, description: SessionDescription) {
         val payload = JSONObject()
             .put("target", peerUserId)
@@ -277,6 +291,7 @@ class WebRtcVoiceController(context: Context) {
         peer = null
         audioTrack = null
         audioSource = null
+        pendingRemoteIce.clear()
 
         restoreAudioMode()
         if (stateSink != null) {
