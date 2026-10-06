@@ -24,6 +24,11 @@ import com.boostlab.app.model.BoostState
 import com.boostlab.app.model.GameLaunchMode
 import com.boostlab.app.model.SquadChatMessage
 import com.boostlab.app.network.ControlPlaneClient
+import com.boostlab.app.network.TcpRouteProbe
+import com.boostlab.app.network.RouteIntelligence
+import com.boostlab.app.network.IntelligentRouteCandidate
+import com.boostlab.app.network.GatewayRouteQualityClient
+import com.boostlab.app.network.AutoRouteSelection
 import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
 import com.boostlab.app.network.LanGatewayDiscovery
@@ -61,6 +66,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val eventStore = EventStore(appContext)
     private val socialStore = SocialStore(appContext)
     private val routeProbe = UdpRouteProbe()
+    private val directRouteProbe = TcpRouteProbe()
+    private val gatewayRouteQuality = GatewayRouteQualityClient()
     private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
     private val squadApi = SquadApiClient()
@@ -173,6 +180,17 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             gameLaunchError = null,
             gameBoostMessage = "Готов к запуску",
             tunnelError = null,
+            routeRecommendation = "UNKNOWN",
+            routeTargetId = null,
+            routeTargetHost = null,
+            directPingMs = null,
+            directP95Ms = null,
+            directJitterMs = null,
+            directPacketLossPct = null,
+            boostedEstimatedPingMs = null,
+            boostedEstimatedP95Ms = null,
+            routeGainMs = null,
+            routeCandidatesTested = 0,
         )
         refreshGameReadiness()
         persistProfile()
@@ -991,18 +1009,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = current.copy(
             isAutoSelecting = true,
             discoveredNodes = 0,
+            routeCandidatesTested = 0,
             probeError = null,
             serverLabel = "Получаем список серверов…",
         )
 
         viewModelScope.launch {
             runCatching {
-                val fetchedNodes = controlPlane.fetchNodes(_state.value.controlPlaneUrl)
-                val preferredRegion = _state.value.preferredRegion
+                val snapshot = _state.value
+                val fetchedNodes = controlPlane.fetchNodes(snapshot.controlPlaneUrl)
+                val preferredRegion = snapshot.preferredRegion
                 val regionalNodes = if (preferredRegion == "AUTO") {
                     fetchedNodes
                 } else {
-                    fetchedNodes.filter { it.region.contains(preferredRegion, ignoreCase = true) }
+                    fetchedNodes
+                        .filter { it.region.contains(preferredRegion, ignoreCase = true) }
                         .ifEmpty { fetchedNodes }
                 }
                 val nodes = regionalNodes.take(MAX_AUTO_NODES)
@@ -1012,10 +1033,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
                 _state.value = _state.value.copy(
                     discoveredNodes = nodes.size,
-                    serverLabel = "Проверяем ${nodes.size} серверов…",
+                    serverLabel = "Проверяем доступ до ${nodes.size} серверов…",
                 )
 
-                val measurements = coroutineScope {
+                val accessMeasurements = coroutineScope {
                     nodes.map { node ->
                         async {
                             runCatching {
@@ -1034,40 +1055,255 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     }.awaitAll().filterNotNull()
                 }
 
-                val eligible = measurements
-                    .filter {
-                        it.metrics.received > 0 &&
-                            it.score.isFinite() &&
-                            !it.node.wireGuardPublicKey.isNullOrBlank() &&
-                            it.node.wireGuardPort != null
-                    }
-
-                val best = eligible.minByOrNull { it.score }
-                    ?: error("Нет доступного сервера, готового к бусту")
-
-                val currentMeasurement = current.selectedGatewayId?.let { currentId ->
-                    eligible.firstOrNull { it.node.id == currentId }
+                val eligibleAccess = accessMeasurements.filter {
+                    it.metrics.received > 0 &&
+                        it.score.isFinite() &&
+                        !it.node.wireGuardPublicKey.isNullOrBlank() &&
+                        it.node.wireGuardPort != null
+                }
+                if (eligibleAccess.isEmpty()) {
+                    error("Нет доступного сервера, готового к бусту")
                 }
 
-                RouteDecisionPolicy.choose(
-                    current = currentMeasurement,
-                    bestCandidate = best,
+                val packageName = snapshot.selectedApp?.packageName
+                val targets = if (!packageName.isNullOrBlank()) {
+                    runCatching {
+                        controlPlane.fetchRouteTargets(snapshot.controlPlaneUrl, packageName)
+                    }.getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
+
+                if (targets.isEmpty() || eligibleAccess.none { !it.node.routeApiUrl.isNullOrBlank() }) {
+                    val best = eligibleAccess.minByOrNull { it.score }
+                        ?: error("Нет доступного сервера, готового к бусту")
+                    val currentMeasurement = current.selectedGatewayId?.let { currentId ->
+                        eligibleAccess.firstOrNull { it.node.id == currentId }
+                    }
+                    val chosen = RouteDecisionPolicy.choose(
+                        current = currentMeasurement,
+                        bestCandidate = best,
+                    )
+                    return@runCatching AutoRouteSelection(
+                        gateway = chosen,
+                        recommendation = "GATEWAY_ONLY",
+                        candidatesTested = eligibleAccess.size,
+                    )
+                }
+
+                _state.value = _state.value.copy(
+                    serverLabel = "Сравниваем Direct и маршруты до игры…",
                 )
-            }.onSuccess { best ->
+
+                val directMeasurements = coroutineScope {
+                    targets.map { target ->
+                        async {
+                            runCatching {
+                                target to directRouteProbe.measure(
+                                    host = target.host,
+                                    port = target.tcpPort,
+                                    samples = DIRECT_ROUTE_SAMPLES,
+                                )
+                            }.getOrNull()
+                        }
+                    }.awaitAll().filterNotNull()
+                }.filter { (_, metrics) ->
+                    metrics.received > 0 && routeScore(metrics, snapshot.boostMode).isFinite()
+                }
+
+                val bestDirect = directMeasurements.minByOrNull { (_, metrics) ->
+                    routeScore(metrics, snapshot.boostMode)
+                }
+
+                if (bestDirect == null) {
+                    val best = eligibleAccess.minByOrNull { it.score }
+                        ?: error("Нет доступного сервера, готового к бусту")
+                    return@runCatching AutoRouteSelection(
+                        gateway = best,
+                        recommendation = "GATEWAY_ONLY",
+                        candidatesTested = eligibleAccess.size,
+                    )
+                }
+
+                val directMetrics = bestDirect.second
+                val directScore = routeScore(directMetrics, snapshot.boostMode)
+
+                val candidates = coroutineScope {
+                    eligibleAccess.flatMap { access ->
+                        val routeApiUrl = access.node.routeApiUrl
+                        if (routeApiUrl.isNullOrBlank()) {
+                            emptyList()
+                        } else {
+                            targets.map { target ->
+                                async {
+                                    runCatching {
+                                        val remote = gatewayRouteQuality.fetch(
+                                            routeApiUrl = routeApiUrl,
+                                            targetId = target.id,
+                                        )
+                                        if (
+                                            remote.metrics.received <= 0 ||
+                                            !remote.metrics.medianRttMs.let { it != null }
+                                        ) {
+                                            return@runCatching null
+                                        }
+                                        val combined = RouteIntelligence.combine(
+                                            access.metrics,
+                                            remote.metrics,
+                                        )
+                                        val boostedScore = routeScore(combined, snapshot.boostMode)
+                                        if (!boostedScore.isFinite()) {
+                                            return@runCatching null
+                                        }
+                                        IntelligentRouteCandidate(
+                                            node = access.node,
+                                            target = target,
+                                            directMetrics = directMetrics,
+                                            phoneToGatewayMetrics = access.metrics,
+                                            gatewayToGameMetrics = remote.metrics,
+                                            boostedMetrics = combined,
+                                            directScore = directScore,
+                                            boostedScore = boostedScore,
+                                        )
+                                    }.getOrNull()
+                                }
+                            }
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+
+                if (candidates.isEmpty()) {
+                    val best = eligibleAccess.minByOrNull { it.score }
+                        ?: error("Нет доступного сервера, готового к бусту")
+                    return@runCatching AutoRouteSelection(
+                        gateway = best,
+                        recommendation = "GATEWAY_ONLY",
+                        directMetrics = directMetrics,
+                        candidatesTested = eligibleAccess.size,
+                    )
+                }
+
+                val bestPerNode = candidates
+                    .groupBy { it.node.id }
+                    .mapValues { (_, items) -> items.minBy { it.boostedScore } }
+
+                val bestCandidate = bestPerNode.values.minBy { it.boostedScore }
+                val currentCandidate = current.selectedGatewayId?.let(bestPerNode::get)
+
+                val chosenGateway = RouteDecisionPolicy.choose(
+                    current = currentCandidate?.let {
+                        GatewayMeasurement(
+                            node = it.node,
+                            metrics = it.boostedMetrics,
+                            score = it.boostedScore,
+                        )
+                    },
+                    bestCandidate = GatewayMeasurement(
+                        node = bestCandidate.node,
+                        metrics = bestCandidate.boostedMetrics,
+                        score = bestCandidate.boostedScore,
+                    ),
+                )
+
+                val chosenCandidate = bestPerNode[chosenGateway.node.id] ?: bestCandidate
+                val useBoost = RouteIntelligence.shouldUseBoost(
+                    chosenCandidate,
+                    snapshot.boostMode,
+                )
+
+                AutoRouteSelection(
+                    gateway = if (useBoost) {
+                        GatewayMeasurement(
+                            node = chosenCandidate.node,
+                            metrics = chosenCandidate.boostedMetrics,
+                            score = chosenCandidate.boostedScore,
+                        )
+                    } else {
+                        null
+                    },
+                    recommendation = if (useBoost) "BOOST" else "DIRECT",
+                    target = chosenCandidate.target,
+                    directMetrics = directMetrics,
+                    boostedMetrics = chosenCandidate.boostedMetrics,
+                    gainMs = chosenCandidate.gainMs,
+                    candidatesTested = candidates.size,
+                )
+            }.onSuccess { selection ->
+                val direct = selection.directMetrics
+                val boosted = selection.boostedMetrics
+                val gateway = selection.gateway
+
+                if (selection.recommendation == "DIRECT") {
+                    _state.value = _state.value.copy(
+                        isAutoSelecting = false,
+                        selectedGatewayId = null,
+                        selectedGatewayRegion = null,
+                        routeRecommendation = "DIRECT",
+                        routeTargetId = selection.target?.id,
+                        routeTargetHost = selection.target?.host,
+                        directPingMs = direct?.medianRttMs,
+                        directP95Ms = direct?.p95RttMs,
+                        directJitterMs = direct?.jitterMs,
+                        directPacketLossPct = direct?.packetLossPct,
+                        boostedEstimatedPingMs = boosted?.medianRttMs,
+                        boostedEstimatedP95Ms = boosted?.p95RttMs,
+                        routeGainMs = selection.gainMs,
+                        routeCandidatesTested = selection.candidatesTested,
+                        pingMs = direct?.medianRttMs,
+                        p95PingMs = direct?.p95RttMs,
+                        jitterMs = direct?.jitterMs,
+                        packetLossPct = direct?.packetLossPct,
+                        serverLabel = "DIRECT лучше · VPN не нужен",
+                        showAdvancedSettings = false,
+                        probeError = null,
+                    )
+                    debugLog(
+                        "Route Intelligence: DIRECT; direct=${direct?.medianRttMs}ms, " +
+                            "bestBoost=${boosted?.medianRttMs}ms",
+                    )
+                    return@onSuccess
+                }
+
+                if (gateway == null) {
+                    error("Route selection returned no gateway")
+                }
+
                 _state.value = _state.value.copy(
                     isAutoSelecting = false,
-                    gatewayHost = best.node.host,
-                    gatewayPort = best.node.udpPort,
-                    wireGuardServerPublicKey = best.node.wireGuardPublicKey
+                    gatewayHost = gateway.node.host,
+                    gatewayPort = gateway.node.udpPort,
+                    wireGuardServerPublicKey = gateway.node.wireGuardPublicKey
                         ?: _state.value.wireGuardServerPublicKey,
-                    wireGuardPort = best.node.wireGuardPort
+                    wireGuardPort = gateway.node.wireGuardPort
                         ?: _state.value.wireGuardPort,
-                    selectedGatewayId = best.node.id,
-                    selectedGatewayRegion = best.node.region,
-                    pingMs = best.metrics.medianRttMs,
-                    jitterMs = best.metrics.jitterMs,
-                    packetLossPct = best.metrics.packetLossPct,
-                    serverLabel = "Автовыбор: ${best.node.region} · ${best.node.id}",
+                    selectedGatewayId = gateway.node.id,
+                    selectedGatewayRegion = gateway.node.region,
+                    routeRecommendation = selection.recommendation,
+                    routeTargetId = selection.target?.id,
+                    routeTargetHost = selection.target?.host,
+                    directPingMs = direct?.medianRttMs,
+                    directP95Ms = direct?.p95RttMs,
+                    directJitterMs = direct?.jitterMs,
+                    directPacketLossPct = direct?.packetLossPct,
+                    boostedEstimatedPingMs = boosted?.medianRttMs,
+                    boostedEstimatedP95Ms = boosted?.p95RttMs,
+                    routeGainMs = selection.gainMs,
+                    routeCandidatesTested = selection.candidatesTested,
+                    pingMs = boosted?.medianRttMs ?: gateway.metrics.medianRttMs,
+                    p95PingMs = boosted?.p95RttMs ?: gateway.metrics.p95RttMs,
+                    jitterMs = boosted?.jitterMs ?: gateway.metrics.jitterMs,
+                    packetLossPct = boosted?.packetLossPct ?: gateway.metrics.packetLossPct,
+                    serverLabel = when (selection.recommendation) {
+                        "BOOST" -> {
+                            val gain = selection.gainMs
+                            if (gain != null && gain > 0) {
+                                "BEST ROUTE: ${gateway.node.region} · −${gain} ms"
+                            } else {
+                                "BEST ROUTE: ${gateway.node.region} · ${gateway.node.id}"
+                            }
+                        }
+                        else -> "Автовыбор: ${gateway.node.region} · ${gateway.node.id}"
+                    },
                     showAdvancedSettings = false,
                     probeError = null,
                 )
@@ -1131,6 +1367,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val selectedApp = snapshot.selectedApp
         if (selectedApp == null) {
             _state.value = snapshot.copy(tunnelError = "Выбери приложение")
+            return
+        }
+        if (snapshot.routeRecommendation == "DIRECT" && snapshot.autoSelectBestNode) {
+            _state.value = snapshot.copy(
+                tunnelError = "Прямой маршрут быстрее — Network Boost не нужен",
+            )
             return
         }
         if (snapshot.gatewayHost.isBlank()) {
@@ -1636,9 +1878,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private fun routeScore(metrics: com.boostlab.app.network.RouteMetrics, mode: String): Double {
         val rtt = metrics.medianRttMs ?: return Double.POSITIVE_INFINITY
         val jitter = metrics.jitterMs ?: 50
+        val p95 = metrics.p95RttMs ?: rtt
+        val tail = (p95 - rtt).coerceAtLeast(0)
         return when (mode) {
-            "LOW_PING" -> rtt.toDouble() + (jitter * 1.2) + (metrics.packetLossPct * 16.0)
-            "STABLE" -> (rtt * 0.7) + (jitter * 3.5) + (metrics.packetLossPct * 30.0)
+            "LOW_PING" ->
+                rtt.toDouble() + (jitter * 0.8) + (tail * 0.5) + (metrics.packetLossPct * 18.0)
+            "STABLE" ->
+                (rtt * 0.65) + (jitter * 3.2) + (tail * 1.8) + (metrics.packetLossPct * 35.0)
             else -> RouteScorer.score(metrics)
         }
     }
@@ -1715,5 +1961,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val DIRECT_SYNC_INTERVAL_MS = 3_000L
         private const val MAX_DIRECT_MESSAGES = 100
         private const val MAX_PENDING_VOICE_ICE = 64
+        private const val DIRECT_ROUTE_SAMPLES = 7
     }
 }
