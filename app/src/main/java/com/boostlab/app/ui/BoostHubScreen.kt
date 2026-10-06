@@ -530,6 +530,21 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
 
         item {
             Panel {
+                Text("События", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                if (state.appEvents.isEmpty()) {
+                    Text("Пока нет событий.", color = HubMuted, fontSize = 11.sp)
+                } else {
+                    state.appEvents.takeLast(5).reversed().forEach {
+                        Text(it, color = HubMuted, fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = viewModel::clearAppEvents) { Text("Очистить") }
+                }
+            }
+        }
+
+        item {
+            Panel {
                 Text("Network Boost", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("Режим", color = HubMuted, fontSize = 11.sp)
