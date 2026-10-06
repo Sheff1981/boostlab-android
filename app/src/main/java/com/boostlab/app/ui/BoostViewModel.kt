@@ -31,6 +31,7 @@ import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.SquadApiClient
 import com.boostlab.app.network.UdpRouteProbe
+import com.boostlab.app.notifications.AppNotificationCenter
 import com.boostlab.app.tunnel.ClientIdentityStore
 import com.boostlab.app.tunnel.TunnelProfile
 import com.boostlab.app.tunnel.WireGuardTunnelController
@@ -67,9 +68,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val tunnelController = WireGuardTunnelController(appContext)
     private val gameBoostEngine = GameBoostEngine(appContext)
     private val voiceController = WebRtcVoiceController(appContext)
+    private val notificationCenter = AppNotificationCenter(appContext)
     private var liveMetricsJob: Job? = null
     private var squadSyncJob: Job? = null
     private var squadLastEventId = 0L
+    private var squadInitialSyncDone = false
     private var pendingVoiceOfferSender: String? = null
     private var pendingVoiceOfferPayload: String? = null
     private val pendingIncomingVoiceIce = mutableListOf<Pair<String, String>>()
@@ -309,6 +312,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         squadSyncJob?.cancel()
         squadSyncJob = null
         squadLastEventId = 0L
+        squadInitialSyncDone = false
+        notificationCenter.cancelIncomingCall()
         val social = socialStore.leaveSquad()
         _state.value = _state.value.copy(
             squadCode = null,
@@ -547,6 +552,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         pendingVoiceOfferSender = null
         pendingVoiceOfferPayload = null
         pendingIncomingVoiceIce.clear()
+        notificationCenter.cancelIncomingCall()
         _state.value = _state.value.copy(
             voiceCallState = "IDLE",
             voicePeerId = null,
@@ -557,6 +563,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun hangupVoiceCall() {
         voiceController.hangup()
+        notificationCenter.cancelIncomingCall()
         pendingVoiceOfferSender = null
         pendingVoiceOfferPayload = null
         pendingIncomingVoiceIce.clear()
@@ -576,6 +583,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     fun onVoicePermissionDenied() {
         _state.value = _state.value.copy(
             voiceError = "Без разрешения на микрофон голосовой звонок не работает",
+        )
+    }
+
+
+    fun onNotificationPermissionResult(granted: Boolean) {
+        addEvent(
+            "Уведомления",
+            if (granted) "Разрешены уведомления отряда" else "Уведомления не разрешены",
         )
     }
 
@@ -1319,6 +1334,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         voiceError = null,
                     )
                     addEvent("Voice", "Входящий звонок от $sender")
+                    _state.value.squadCode?.let { code ->
+                        notificationCenter.notifyIncomingCall(code, sender)
+                    }
                 }
             }
             "voice_hangup" -> {
@@ -1326,6 +1344,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     pendingVoiceOfferSender = null
                     pendingVoiceOfferPayload = null
                     pendingIncomingVoiceIce.clear()
+                    notificationCenter.cancelIncomingCall()
                     _state.value = _state.value.copy(
                         voiceCallState = "IDLE",
                         voicePeerId = null,
@@ -1360,6 +1379,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val code = _state.value.squadCode ?: return
         if (resetCursor) {
             squadLastEventId = 0L
+            squadInitialSyncDone = false
             _state.value = _state.value.copy(
                 squadMessages = emptyList(),
                 squadOnlineUsers = emptyList(),
@@ -1403,6 +1423,19 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                 createdAt = it.createdAt,
                             )
                         }
+
+                    if (squadInitialSyncDone) {
+                        chats
+                            .filter { it.sender != _state.value.localUserId }
+                            .forEach { chat ->
+                                notificationCenter.notifyMessage(
+                                    squadCode = code,
+                                    sender = chat.sender,
+                                    text = chat.text,
+                                )
+                            }
+                    }
+
                     _state.value = _state.value.copy(
                         squadMessages = (_state.value.squadMessages + chats)
                             .distinctBy { it.id }
@@ -1411,6 +1444,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         squadOnlineUsers = presence.map { it.userId }.distinct().sorted(),
                         squadSyncError = null,
                     )
+                    squadInitialSyncDone = true
                 }.onFailure { error ->
                     _state.value = _state.value.copy(
                         squadSyncError = error.message ?: "Ошибка синхронизации отряда",
