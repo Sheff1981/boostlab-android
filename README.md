@@ -72,3 +72,12 @@ Supported build environment variables:
 These values contain connection metadata and a WireGuard **public** key only. Never put a client or server private key into these variables.
 
 If no build defaults are supplied, the advanced settings screen remains available for one-time manual setup.
+
+
+## Game Boost 0.6
+
+The default BOOST path does not require a server or VPN. Select a game and press **BOOST · ЗАПУСТИТЬ**.
+
+The app performs a non-destructive device readiness check (available RAM, battery saver, thermal state) and launches the selected game. It does **not** clear app data, delete caches or files, or try to kill other applications.
+
+VPN / Network Boost remains optional and is controlled separately. It can be enabled for the selected game only when a WireGuard gateway is configured.
