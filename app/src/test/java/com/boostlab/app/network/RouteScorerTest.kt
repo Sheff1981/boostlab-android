@@ -37,3 +37,26 @@ class RouteScorerTest {
         assertTrue(RouteScorer.score(unreachable).isInfinite())
     }
 }
+
+
+    @Test
+    fun tailLatencyPenalizesUnstableRoute() {
+        val stable = RouteMetrics(
+            medianRttMs = 40,
+            jitterMs = 3,
+            packetLossPct = 0.0,
+            sent = 8,
+            received = 8,
+            p95RttMs = 46,
+        )
+        val spiky = RouteMetrics(
+            medianRttMs = 40,
+            jitterMs = 3,
+            packetLossPct = 0.0,
+            sent = 8,
+            received = 8,
+            p95RttMs = 95,
+        )
+
+        assertTrue(RouteScorer.score(stable) < RouteScorer.score(spiky))
+    }
