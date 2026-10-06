@@ -9,6 +9,7 @@ data class RouteMetrics(
     val packetLossPct: Double,
     val sent: Int,
     val received: Int,
+    val p95RttMs: Int? = null,
 )
 
 object RouteMetricsCalculator {
@@ -20,6 +21,7 @@ object RouteMetricsCalculator {
                 packetLossPct = 100.0,
                 sent = 0,
                 received = 0,
+                p95RttMs = null,
             )
         }
 
@@ -33,6 +35,15 @@ object RouteMetricsCalculator {
                     else -> ((sorted[sorted.size / 2 - 1] + sorted[sorted.size / 2]) / 2.0)
                         .roundToInt()
                 }
+            }
+
+        val p95 = received
+            .sorted()
+            .takeIf { it.isNotEmpty() }
+            ?.let { sorted ->
+                val index = kotlin.math.ceil(sorted.size * 0.95).toInt()
+                    .coerceIn(1, sorted.size) - 1
+                sorted[index].toInt()
             }
 
         val jitter = if (received.size < 2) {
@@ -51,6 +62,7 @@ object RouteMetricsCalculator {
             packetLossPct = loss,
             sent = samplesMs.size,
             received = received.size,
+            p95RttMs = p95,
         )
     }
 }
