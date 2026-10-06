@@ -16,6 +16,7 @@ data class BoostState(
     val thermalStatus: Int? = null,
     val networkValidated: Boolean? = null,
     val networkTransport: String? = null,
+    val gameLaunchMode: GameLaunchMode = GameLaunchMode.SMART,
 
     // Legacy name kept for compatibility: this flag now means VPN/network boost is active.
     val isBoosting: Boolean = false,

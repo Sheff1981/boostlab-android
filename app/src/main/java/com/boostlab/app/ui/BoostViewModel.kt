@@ -3,13 +3,16 @@ package com.boostlab.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.boostlab.app.data.GameProfileStore
 import com.boostlab.app.data.InstalledAppsRepository
 import com.boostlab.app.data.PrivateProfileStore
 import com.boostlab.app.data.PrivateServerProfile
 import com.boostlab.app.boost.GameBoostEngine
 import com.boostlab.app.boost.GameLaunchAdvisor
+import com.boostlab.app.boost.GameLaunchPolicy
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
+import com.boostlab.app.model.GameLaunchMode
 import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
@@ -35,6 +38,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val repository = InstalledAppsRepository(appContext)
     private val profileStore = PrivateProfileStore(appContext)
+    private val gameProfileStore = GameProfileStore(appContext)
     private val routeProbe = UdpRouteProbe()
     private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
@@ -63,6 +67,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             wireGuardPort = saved.wireGuardPort,
             tunnelAddress = saved.tunnelAddress,
             dnsServer = saved.dnsServer,
+            gameLaunchMode = savedApp?.let { gameProfileStore.load(it.packageName) }
+                ?: GameLaunchMode.SMART,
             serverLabel = if (saved.gatewayHost.isNotBlank()) {
                 "Сохранённый сервер: ${saved.gatewayHost}"
             } else {
@@ -95,12 +101,27 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         _state.value = _state.value.copy(
             selectedApp = app,
+            gameLaunchMode = gameProfileStore.load(app.packageName),
             gameLaunchError = null,
             gameBoostMessage = "Готов к запуску",
             tunnelError = null,
         )
         refreshGameReadiness()
         persistProfile()
+    }
+
+    fun cycleGameLaunchMode() {
+        val snapshot = _state.value
+        val selectedApp = snapshot.selectedApp ?: return
+        if (snapshot.isGameLaunching) return
+
+        val nextMode = snapshot.gameLaunchMode.next()
+        gameProfileStore.save(selectedApp.packageName, nextMode)
+        _state.value = snapshot.copy(
+            gameLaunchMode = nextMode,
+            gameLaunchError = null,
+            gameBoostMessage = "Профиль: ${nextMode.title}",
+        )
     }
 
     fun boostAndLaunchGame() {
@@ -132,6 +153,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             networkValidated = readiness?.networkValidated ?: snapshot.networkValidated,
             networkTransport = readiness?.networkTransport ?: snapshot.networkTransport,
         )
+
+        GameLaunchPolicy.blockReason(snapshot.gameLaunchMode, readiness)?.let { reason ->
+            _state.value = _state.value.copy(
+                isGameLaunching = false,
+                gameLaunchError = reason,
+                gameBoostMessage = "Профиль остановил запуск",
+            )
+            return
+        }
 
         gameBoostEngine.launch(selectedApp.packageName)
             .onSuccess {

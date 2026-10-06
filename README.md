@@ -81,3 +81,14 @@ The default BOOST path does not require a server or VPN. Select a game and press
 The app performs a non-destructive device readiness check (available RAM, battery saver, thermal state) and launches the selected game. It does **not** clear app data, delete caches or files, or try to kill other applications.
 
 VPN / Network Boost remains optional and is controlled separately. It can be enabled for the selected game only when a WireGuard gateway is configured.
+
+
+## Per-game launch profiles 0.7
+
+Each installed game can now keep its own local launch profile. Profiles are stored by Android package name and never contain VPN keys or server credentials.
+
+- **SMART** — blocks launch only when Android reports severe thermal stress.
+- **ONLINE** — uses the same thermal guard and also requires a validated internet connection.
+- **ALWAYS** — never blocks launch; diagnostics still run and remain visible.
+
+The profile is applied before the game starts and is independent from VPN / Network Boost.

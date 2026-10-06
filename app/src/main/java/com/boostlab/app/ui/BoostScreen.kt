@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
+import com.boostlab.app.model.GameLaunchMode
 import java.util.Locale
 import kotlin.math.cos
 import kotlin.math.sin
@@ -191,6 +192,7 @@ fun BoostScreen(
                                 SelectedGameCard(
                                     state = state,
                                     onBoostClick = viewModel::boostAndLaunchGame,
+                                    onProfileClick = viewModel::cycleGameLaunchMode,
                                 )
                             }
 
@@ -757,6 +759,7 @@ private fun RegionChip(
 private fun SelectedGameCard(
     state: BoostState,
     onBoostClick: () -> Unit,
+    onProfileClick: () -> Unit,
 ) {
     val selected = state.selectedApp
     val boostEnabled = selected != null && !state.isGameLaunching
@@ -853,7 +856,16 @@ private fun SelectedGameCard(
                 )
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
+
+            if (selected != null) {
+                LaunchProfileRow(
+                    mode = state.gameLaunchMode,
+                    enabled = !state.isGameLaunching,
+                    onClick = onProfileClick,
+                )
+                Spacer(Modifier.height(10.dp))
+            }
 
             GradientBoostButton(
                 text = when {
@@ -865,6 +877,56 @@ private fun SelectedGameCard(
                 onClick = onBoostClick,
             )
         }
+    }
+}
+
+@Composable
+private fun LaunchProfileRow(
+    mode: GameLaunchMode,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.55f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0x9910203B))
+            .border(1.dp, Color(0xFF294C73), RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Settings,
+            contentDescription = null,
+            tint = Cyan,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = "Профиль запуска",
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = mode.description,
+                color = Muted,
+                fontSize = 10.sp,
+                lineHeight = 12.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = mode.title,
+            color = Mint,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+        )
     }
 }
 
