@@ -449,7 +449,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
-            runCatching { squadApi.fetchVoiceIce(baseUrl) }
+            runCatching { squadApi.fetchVoiceIce(baseUrl, _state.value.localUserId) }
                 .onSuccess { servers ->
                     _state.value = _state.value.copy(
                         voiceIceServerCount = servers.sumOf { it.urls.size },
@@ -1332,7 +1332,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun loadVoiceIceServers(baseUrl: String): List<VoiceIceServer> {
         return runCatching {
-            squadApi.fetchVoiceIce(baseUrl).map { remote ->
+            squadApi.fetchVoiceIce(baseUrl, _state.value.localUserId).map { remote ->
                 VoiceIceServer(
                     urls = remote.urls,
                     username = remote.username,
