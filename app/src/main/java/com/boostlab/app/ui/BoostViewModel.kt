@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.boostlab.app.data.BoostHistoryStore
 import com.boostlab.app.data.DiagnosticLogStore
 import com.boostlab.app.data.GameCatalogRepository
 import com.boostlab.app.data.GameProfileStore
@@ -49,6 +50,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val pinnedAppsStore = PinnedAppsStore(appContext)
     private val userSettingsStore = UserSettingsStore(appContext)
     private val diagnosticLogStore = DiagnosticLogStore(appContext)
+    private val boostHistoryStore = BoostHistoryStore(appContext)
     private val socialStore = SocialStore(appContext)
     private val routeProbe = UdpRouteProbe()
     private val lanDiscovery = LanGatewayDiscovery()
@@ -68,6 +70,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val saved = profileStore.load()
         val userSettings = userSettingsStore.load()
         val social = socialStore.load()
+        val history = boostHistoryStore.load()
         val pinned = pinnedAppsStore.load()
         val savedApp = saved.selectedPackage?.let { packageName ->
             apps.firstOrNull { it.packageName == packageName }
@@ -88,10 +91,22 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             autoLaunchAfterNetworkBoost = userSettings.autoLaunchAfterNetworkBoost,
             confirmStop = userSettings.confirmStop,
             debugLogging = userSettings.debugLogging,
+            showPing = userSettings.showPing,
+            autoSelectBestNode = userSettings.autoSelectBestNode,
+            preferredRegion = userSettings.preferredRegion,
+            boostMode = userSettings.boostMode,
+            customDnsEnabled = userSettings.customDnsEnabled,
+            customDnsServers = userSettings.customDnsServers,
             diagnosticLogEntries = diagnosticLogStore.load(),
             localUserId = social.userId,
             squadCode = social.squadCode,
             friends = social.friends,
+            boostSessionCount = history.sessionCount,
+            totalBoostSeconds = history.totalBoostSeconds,
+            lastBoostSeconds = history.lastBoostSeconds,
+            lastBoostPingMs = history.lastPingMs,
+            lastBoostJitterMs = history.lastJitterMs,
+            lastBoostPacketLossPct = history.lastPacketLossPct,
             serverLabel = if (saved.gatewayHost.isNotBlank()) {
                 "Сохранённый сервер: ${saved.gatewayHost}"
             } else {
@@ -165,6 +180,69 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         userSettingsStore.save(updated)
         _state.value = _state.value.copy(debugLogging = enabled)
         if (enabled) debugLog("Отладочный лог включён")
+    }
+
+
+    fun setShowPing(enabled: Boolean) {
+        val updated = userSettingsStore.load().copy(showPing = enabled)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(showPing = enabled)
+        debugLog("Показ ping: $enabled")
+    }
+
+    fun setAutoSelectBestNode(enabled: Boolean) {
+        val updated = userSettingsStore.load().copy(autoSelectBestNode = enabled)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(autoSelectBestNode = enabled)
+        debugLog("Автовыбор лучшего узла: $enabled")
+    }
+
+    fun setPreferredRegion(region: String) {
+        val normalized = region.trim().uppercase().ifBlank { "AUTO" }
+        val updated = userSettingsStore.load().copy(preferredRegion = normalized)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(preferredRegion = normalized)
+        debugLog("Регион узла: $normalized")
+    }
+
+    fun setBoostMode(mode: String) {
+        val normalized = mode.trim().uppercase().let {
+            when (it) {
+                "LOW_PING", "STABLE" -> it
+                else -> "SMART"
+            }
+        }
+        val updated = userSettingsStore.load().copy(boostMode = normalized)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(boostMode = normalized)
+        debugLog("Режим Network Boost: $normalized")
+    }
+
+    fun setCustomDnsEnabled(enabled: Boolean) {
+        val updated = userSettingsStore.load().copy(customDnsEnabled = enabled)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(customDnsEnabled = enabled)
+        debugLog("Custom DNS: $enabled")
+    }
+
+    fun addCustomDns(value: String) {
+        val dns = value.trim()
+        if (dns.isBlank() || dns.length > 253 || dns.any { it.isWhitespace() }) return
+        val current = userSettingsStore.load()
+        val servers = (current.customDnsServers + dns).distinct().take(4)
+        val updated = current.copy(customDnsServers = servers)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(customDnsServers = servers)
+        debugLog("Добавлен Custom DNS: $dns")
+    }
+
+    fun removeCustomDns(value: String) {
+        val current = userSettingsStore.load()
+        val servers = current.customDnsServers.filterNot { it == value }
+        val updated = current.copy(customDnsServers = servers)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(customDnsServers = servers)
+        debugLog("Удалён Custom DNS: $value")
     }
 
     fun selectDns(dns: String) {
@@ -426,7 +504,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                         healthy = true,
                                     ),
                                     metrics = metrics,
-                                    score = RouteScorer.score(metrics),
+                                    score = routeScore(metrics, _state.value.boostMode),
                                 )
                             }.getOrNull()
                         }
@@ -474,8 +552,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             runCatching {
-                val nodes = controlPlane.fetchNodes(_state.value.controlPlaneUrl)
-                    .take(MAX_AUTO_NODES)
+                val fetchedNodes = controlPlane.fetchNodes(_state.value.controlPlaneUrl)
+                val preferredRegion = _state.value.preferredRegion
+                val regionalNodes = if (preferredRegion == "AUTO") {
+                    fetchedNodes
+                } else {
+                    fetchedNodes.filter { it.region.contains(preferredRegion, ignoreCase = true) }
+                        .ifEmpty { fetchedNodes }
+                }
+                val nodes = regionalNodes.take(MAX_AUTO_NODES)
                 if (nodes.isEmpty()) {
                     error("Control API returned no healthy gateways")
                 }
@@ -626,7 +711,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     endpointHost = _state.value.gatewayHost,
                     endpointPort = _state.value.wireGuardPort,
                     addressCidr = _state.value.tunnelAddress,
-                    dnsServer = _state.value.dnsServer,
+                    dnsServer = activeDnsValue(_state.value),
                     selectedPackage = selectedApp.packageName,
                 )
                 tunnelController.connect(profile)
@@ -641,6 +726,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     },
                 )
                 if (tunnelState == Tunnel.State.UP) {
+                    _state.value = _state.value.copy(
+                        boostStartedAtEpochMs = _state.value.boostStartedAtEpochMs ?: System.currentTimeMillis(),
+                    )
                     debugLog("Network Boost подключён: ${_state.value.gatewayHost}")
                     startLiveMetrics()
                     if (_state.value.autoLaunchAfterNetworkBoost) {
@@ -672,10 +760,18 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching { tunnelController.disconnect() }
                 .onSuccess {
+                    val history = recordBoostSessionIfNeeded()
                     _state.value = _state.value.copy(
                         isTunnelConnecting = false,
                         isBoosting = false,
                         tunnelError = null,
+                        boostStartedAtEpochMs = null,
+                        boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
+                        totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
+                        lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
+                        lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
+                        lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
+                        lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
                     )
                     debugLog("Network Boost отключён")
                 }
@@ -703,6 +799,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             _state.value = _state.value.copy(
                 isBoosting = true,
                 isTunnelConnecting = false,
+                boostStartedAtEpochMs = System.currentTimeMillis(),
                 tunnelError = null,
                 serverLabel = "Буст активен · ${saved.gatewayHost}",
             )
@@ -714,7 +811,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             runCatching { tunnelController.disconnect() }
         }
 
-        if (saved.controlPlaneUrl.startsWith("https://")) {
+        if (saved.controlPlaneUrl.startsWith("https://") && _state.value.autoSelectBestNode) {
             autoSelectGateway()
         } else if (saved.gatewayHost.isNotBlank()) {
             probeGateway()
@@ -730,8 +827,16 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
                 when (runCatching { tunnelController.state() }.getOrNull()) {
                     Tunnel.State.DOWN -> {
+                        val history = recordBoostSessionIfNeeded()
                         _state.value = _state.value.copy(
                             isBoosting = false,
+                            boostStartedAtEpochMs = null,
+                            boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
+                            totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
+                            lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
+                            lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
+                            lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
+                            lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
                             isTunnelConnecting = false,
                             serverLabel = "Буст отключён",
                             tunnelError = "VPN-туннель остановлен",
@@ -765,6 +870,35 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopLiveMetrics() {
         liveMetricsJob?.cancel()
         liveMetricsJob = null
+    }
+
+    private fun activeDnsValue(snapshot: BoostState): String {
+        return if (snapshot.customDnsEnabled && snapshot.customDnsServers.isNotEmpty()) {
+            snapshot.customDnsServers.take(4).joinToString(",")
+        } else {
+            snapshot.dnsServer
+        }
+    }
+
+    private fun routeScore(metrics: com.boostlab.app.network.RouteMetrics, mode: String): Double {
+        val rtt = metrics.medianRttMs ?: return Double.POSITIVE_INFINITY
+        val jitter = metrics.jitterMs ?: 50
+        return when (mode) {
+            "LOW_PING" -> rtt.toDouble() + (jitter * 1.2) + (metrics.packetLossPct * 16.0)
+            "STABLE" -> (rtt * 0.7) + (jitter * 3.5) + (metrics.packetLossPct * 30.0)
+            else -> RouteScorer.score(metrics)
+        }
+    }
+
+    private fun recordBoostSessionIfNeeded() = _state.value.boostStartedAtEpochMs?.let { startedAt ->
+        val snapshot = _state.value
+        val durationSeconds = ((System.currentTimeMillis() - startedAt) / 1000L).coerceAtLeast(0L)
+        boostHistoryStore.record(
+            durationSeconds = durationSeconds,
+            pingMs = snapshot.pingMs,
+            jitterMs = snapshot.jitterMs,
+            packetLossPct = snapshot.packetLossPct,
+        )
     }
 
     private fun debugLog(message: String) {
