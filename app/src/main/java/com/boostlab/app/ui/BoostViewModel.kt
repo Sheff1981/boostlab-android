@@ -268,10 +268,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val eligible = measurements
-                    .filter { it.metrics.received > 0 && it.score.isFinite() }
+                    .filter {
+                        it.metrics.received > 0 &&
+                            it.score.isFinite() &&
+                            !it.node.wireGuardPublicKey.isNullOrBlank() &&
+                            it.node.wireGuardPort != null
+                    }
 
                 val best = eligible.minByOrNull { it.score }
-                    ?: error("No gateway answered the route probe")
+                    ?: error("Нет доступного сервера, готового к бусту")
 
                 val currentMeasurement = current.selectedGatewayId?.let { currentId ->
                     eligible.firstOrNull { it.node.id == currentId }
@@ -296,6 +301,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     jitterMs = best.metrics.jitterMs,
                     packetLossPct = best.metrics.packetLossPct,
                     serverLabel = "Автовыбор: ${best.node.region} · ${best.node.id}",
+                    showAdvancedSettings = false,
                     probeError = null,
                 )
                 persistProfile()
