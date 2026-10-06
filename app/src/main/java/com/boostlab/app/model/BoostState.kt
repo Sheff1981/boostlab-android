@@ -17,6 +17,14 @@ data class BoostState(
     val networkValidated: Boolean? = null,
     val networkTransport: String? = null,
     val gameLaunchMode: GameLaunchMode = GameLaunchMode.SMART,
+    val pinnedPackages: Set<String> = emptySet(),
+    val autoLaunchAfterNetworkBoost: Boolean = false,
+    val confirmStop: Boolean = true,
+    val debugLogging: Boolean = false,
+    val diagnosticLogEntries: List<String> = emptyList(),
+    val localUserId: String = "",
+    val squadCode: String? = null,
+    val friends: List<String> = emptyList(),
 
     // Legacy name kept for compatibility: this flag now means VPN/network boost is active.
     val isBoosting: Boolean = false,

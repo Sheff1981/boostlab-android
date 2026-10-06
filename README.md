@@ -92,3 +92,16 @@ Each installed game can now keep its own local launch profile. Profiles are stor
 - **ALWAYS** — never blocks launch; diagnostics still run and remain visible.
 
 The profile is applied before the game starts and is independent from VPN / Network Boost.
+
+
+## Layer 1 — full product surface 0.8
+
+BOOSTLAB now ships a complete first product layer inspired by useful interaction patterns in modern game boosters, without copying third-party code or branding.
+
+- Games catalog with Hot / New / All tabs and Play Store search for missing games.
+- Local installed-app library with add/remove game actions.
+- Boost hub with standalone launch profiles and optional Network Boost.
+- Stats surface for route and device readiness.
+- Squad surface with local squad identity, invite sharing and local friend list. Real multi-user voice requires a signaling/media backend and is deliberately not faked.
+- Profile/settings with DNS presets, auto-launch after Network Boost, stop confirmation, diagnostic logging, log export, sharing, and full server controls.
+- Server controls retain auto-selection, LAN discovery, manual probing and WireGuard settings.

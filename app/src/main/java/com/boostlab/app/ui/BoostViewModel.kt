@@ -1,11 +1,18 @@
 package com.boostlab.app.ui
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.boostlab.app.data.DiagnosticLogStore
+import com.boostlab.app.data.GameCatalogRepository
 import com.boostlab.app.data.GameProfileStore
 import com.boostlab.app.data.InstalledAppsRepository
+import com.boostlab.app.data.PinnedAppsStore
 import com.boostlab.app.data.PrivateProfileStore
+import com.boostlab.app.data.SocialStore
+import com.boostlab.app.data.UserSettingsStore
 import com.boostlab.app.data.PrivateServerProfile
 import com.boostlab.app.boost.GameBoostEngine
 import com.boostlab.app.boost.GameLaunchAdvisor
@@ -39,6 +46,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = InstalledAppsRepository(appContext)
     private val profileStore = PrivateProfileStore(appContext)
     private val gameProfileStore = GameProfileStore(appContext)
+    private val pinnedAppsStore = PinnedAppsStore(appContext)
+    private val userSettingsStore = UserSettingsStore(appContext)
+    private val diagnosticLogStore = DiagnosticLogStore(appContext)
+    private val socialStore = SocialStore(appContext)
     private val routeProbe = UdpRouteProbe()
     private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
@@ -51,9 +62,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<BoostState> = _state.asStateFlow()
 
     val apps: List<BoostApp> = repository.loadLaunchableApps()
+    val catalogGames = GameCatalogRepository.games
 
     init {
         val saved = profileStore.load()
+        val userSettings = userSettingsStore.load()
+        val social = socialStore.load()
+        val pinned = pinnedAppsStore.load()
         val savedApp = saved.selectedPackage?.let { packageName ->
             apps.firstOrNull { it.packageName == packageName }
         }
@@ -69,6 +84,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             dnsServer = saved.dnsServer,
             gameLaunchMode = savedApp?.let { gameProfileStore.load(it.packageName) }
                 ?: GameLaunchMode.SMART,
+            pinnedPackages = pinned,
+            autoLaunchAfterNetworkBoost = userSettings.autoLaunchAfterNetworkBoost,
+            confirmStop = userSettings.confirmStop,
+            debugLogging = userSettings.debugLogging,
+            diagnosticLogEntries = diagnosticLogStore.load(),
+            localUserId = social.userId,
+            squadCode = social.squadCode,
+            friends = social.friends,
             serverLabel = if (saved.gatewayHost.isNotBlank()) {
                 "Сохранённый сервер: ${saved.gatewayHost}"
             } else {
@@ -99,8 +122,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectApp(app: BoostApp) {
         if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
+        val pinned = _state.value.pinnedPackages + app.packageName
+        pinnedAppsStore.save(pinned)
         _state.value = _state.value.copy(
             selectedApp = app,
+            pinnedPackages = pinned,
             gameLaunchMode = gameProfileStore.load(app.packageName),
             gameLaunchError = null,
             gameBoostMessage = "Готов к запуску",
@@ -108,6 +134,112 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         )
         refreshGameReadiness()
         persistProfile()
+        debugLog("Выбрано приложение: ${app.label} [${app.packageName}]")
+    }
+
+    fun togglePinnedApp(app: BoostApp) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
+        val current = _state.value.pinnedPackages
+        val updated = if (app.packageName in current) current - app.packageName else current + app.packageName
+        pinnedAppsStore.save(updated)
+        _state.value = _state.value.copy(pinnedPackages = updated)
+        debugLog(if (app.packageName in updated) "Добавлено в игры: ${app.label}" else "Удалено из игр: ${app.label}")
+    }
+
+    fun setAutoLaunchAfterNetworkBoost(enabled: Boolean) {
+        val updated = userSettingsStore.load().copy(autoLaunchAfterNetworkBoost = enabled)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(autoLaunchAfterNetworkBoost = enabled)
+        debugLog("Автозапуск после Network Boost: $enabled")
+    }
+
+    fun setConfirmStop(enabled: Boolean) {
+        val updated = userSettingsStore.load().copy(confirmStop = enabled)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(confirmStop = enabled)
+        debugLog("Подтверждение остановки: $enabled")
+    }
+
+    fun setDebugLogging(enabled: Boolean) {
+        val updated = userSettingsStore.load().copy(debugLogging = enabled)
+        userSettingsStore.save(updated)
+        _state.value = _state.value.copy(debugLogging = enabled)
+        if (enabled) debugLog("Отладочный лог включён")
+    }
+
+    fun selectDns(dns: String) {
+        updateDnsServer(dns)
+        debugLog("DNS: $dns")
+    }
+
+    fun createSquad() {
+        val social = socialStore.createSquad()
+        _state.value = _state.value.copy(
+            squadCode = social.squadCode,
+            localUserId = social.userId,
+            friends = social.friends,
+        )
+        debugLog("Создан локальный отряд: ${social.squadCode}")
+    }
+
+    fun joinSquad(code: String) {
+        val normalized = code.trim().uppercase()
+        if (normalized.length < 4) return
+        val social = socialStore.joinSquad(normalized)
+        _state.value = _state.value.copy(
+            squadCode = social.squadCode,
+            localUserId = social.userId,
+            friends = social.friends,
+        )
+        debugLog("Выбран код отряда: $normalized")
+    }
+
+    fun leaveSquad() {
+        val social = socialStore.leaveSquad()
+        _state.value = _state.value.copy(
+            squadCode = null,
+            localUserId = social.userId,
+            friends = social.friends,
+        )
+        debugLog("Выход из отряда")
+    }
+
+    fun addFriend(alias: String) {
+        val name = alias.trim()
+        if (name.isBlank()) return
+        val social = socialStore.addFriend(name)
+        _state.value = _state.value.copy(friends = social.friends)
+        debugLog("Добавлен друг: $name")
+    }
+
+    fun shareSquadInvite() {
+        val code = _state.value.squadCode ?: return
+        shareText("BOOSTLAB отряд", "Присоединяйся к моему отряду BOOSTLAB. Код: $code")
+    }
+
+    fun openStoreSearch(query: String) {
+        val encoded = Uri.encode(query)
+        val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=$encoded&c=apps"))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val fallback = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://play.google.com/store/search?q=$encoded&c=apps"),
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { appContext.startActivity(market) }
+            .recoverCatching { appContext.startActivity(fallback) }
+    }
+
+    fun exportDiagnosticLog() {
+        shareText("BOOSTLAB diagnostic log", diagnosticLogStore.exportText())
+    }
+
+    fun clearDiagnosticLog() {
+        diagnosticLogStore.clear()
+        _state.value = _state.value.copy(diagnosticLogEntries = emptyList())
+    }
+
+    fun shareApp() {
+        shareText("BOOSTLAB", "BOOSTLAB — игровой бустер и Network Boost для Android.")
     }
 
     fun cycleGameLaunchMode() {
@@ -509,7 +641,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     },
                 )
                 if (tunnelState == Tunnel.State.UP) {
+                    debugLog("Network Boost подключён: ${_state.value.gatewayHost}")
                     startLiveMetrics()
+                    if (_state.value.autoLaunchAfterNetworkBoost) {
+                        boostAndLaunchGame()
+                    }
                 } else {
                     stopLiveMetrics()
                 }
@@ -541,6 +677,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         isBoosting = false,
                         tunnelError = null,
                     )
+                    debugLog("Network Boost отключён")
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(
@@ -628,6 +765,24 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopLiveMetrics() {
         liveMetricsJob?.cancel()
         liveMetricsJob = null
+    }
+
+    private fun debugLog(message: String) {
+        if (!_state.value.debugLogging) return
+        diagnosticLogStore.append(message)
+        _state.value = _state.value.copy(diagnosticLogEntries = diagnosticLogStore.load())
+    }
+
+    private fun shareText(subject: String, body: String) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, subject)
+            putExtra(Intent.EXTRA_TEXT, body)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val chooser = Intent.createChooser(send, subject)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { appContext.startActivity(chooser) }
     }
 
     private fun persistProfile() {

@@ -8,7 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import com.boostlab.app.ui.BoostScreen
+import com.boostlab.app.ui.BoostHubScreen
 import com.boostlab.app.ui.BoostViewModel
 
 class MainActivity : ComponentActivity() {
@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            BoostScreen(
+            BoostHubScreen(
                 viewModel = viewModel,
                 onRequestVpnPermission = ::requestVpnPermission,
             )
