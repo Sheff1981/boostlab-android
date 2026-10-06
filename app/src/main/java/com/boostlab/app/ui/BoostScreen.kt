@@ -88,6 +88,16 @@ fun BoostScreen(
                 }
 
                 item {
+                    PlanCard(state)
+                }
+
+                if (state.adsEnabled && !state.isBoosting) {
+                    item {
+                        AdPlaceholderCard()
+                    }
+                }
+
+                item {
                     RouteCard(
                         state = state,
                         viewModel = viewModel,
@@ -118,6 +128,84 @@ fun BoostScreen(
                     )
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun PlanCard(
+    state: com.boostlab.app.model.BoostState,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF102842)),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = if (state.planTier.name == "PREMIUM") {
+                        "BOOSTLAB Premium"
+                    } else {
+                        "BOOSTLAB Free"
+                    },
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = if (state.planTier.name == "PREMIUM") {
+                        "Без рекламы · приоритетные маршруты"
+                    } else {
+                        "Бесплатный доступ · реклама оплачивает инфраструктуру"
+                    },
+                    color = Color(0xFF9FB4C9),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            Text(
+                text = if (state.planTier.name == "PREMIUM") "PREMIUM" else "FREE",
+                color = Cyan,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AdPlaceholderCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0D243B)),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+        ) {
+            Text(
+                text = "Реклама",
+                color = Color(0xFF8EA7BD),
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text(
+                text = "Рекламный блок будет включён только в бесплатной релизной версии.",
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = "Во время активного буста реклама скрыта.",
+                color = Color(0xFF9FB4C9),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
