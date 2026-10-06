@@ -118,3 +118,25 @@ This pass converts recurring negative-review themes from competing boosters into
 - Gateway ping/jitter/loss are labelled as route measurements and are not presented as guaranteed game-server latency or FPS gains.
 - Existing Boost Report, free network modes, region preference and custom DNS remain intact.
 - Disconnect returns to the normal Android route without rewriting global Wi-Fi/mobile/DNS settings outside the VPN.
+
+
+## Free feature-parity pass 0.9
+
+The Android client now exposes the useful non-monetized product surface found in modern game-route boosters while keeping BOOSTLAB branding and implementation independent.
+
+- Games catalog plus every launchable app installed on the phone.
+- One-tap local game launch and per-game launch profiles.
+- Optional per-app WireGuard Network Boost.
+- Smart / Low Ping / Stable route scoring modes.
+- Preferred region filter with automatic fallback.
+- Automatic best-node selection, LAN discovery and manual node probing.
+- Live ping, jitter and packet-loss telemetry.
+- Persistent Boost Report: session count, duration and last-session route metrics.
+- DNS presets plus up to four custom DNS servers.
+- Optional ping visibility and auto-launch after the route is active.
+- Local notification/event center.
+- Diagnostic log export and prefilled feedback report.
+- Squad IDs, local friend list, invite sharing and `boostlab://squad/<code>` deep links.
+- No VIP gates, subscription checks or advertising SDKs are required for these BOOSTLAB features.
+
+FKey's remote game catalog, global relay fleet, push messaging, multi-user chat and voice calls are server-backed services. BOOSTLAB does not copy their private endpoints, credentials, binaries or proprietary implementation. Those features require BOOSTLAB-owned backend infrastructure before they can be represented as working features.
