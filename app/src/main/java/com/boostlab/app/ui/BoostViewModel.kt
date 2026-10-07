@@ -1761,41 +1761,45 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 val identity = identityStore.loadOrCreate()
                 var tunnelAddress = snapshot.tunnelAddress
 
-                if (
+                val managedGateway = (
                     !snapshot.selectedGatewayId.isNullOrBlank() &&
-                    snapshot.controlPlaneUrl.startsWith("https://")
-                ) {
+                        !snapshot.selectedRouteApiUrl.isNullOrBlank() &&
+                        snapshot.controlPlaneUrl.startsWith("https://")
+                    )
+
+                if (managedGateway) {
                     _state.value = _state.value.copy(
                         isPeerProvisioning = true,
                         peerProvisionError = null,
                         serverLabel = "Регистрируем устройство на Gateway…",
                     )
 
-                    runCatching {
+                    val registration = try {
                         provisionPeerForSelectedGateway(
                             snapshot = snapshot,
                             wireGuardPublicKey = identity.publicKeyBase64,
                         )
-                    }.onSuccess { registration ->
-                        tunnelAddress = registration
-                        _state.value = _state.value.copy(
-                            isPeerProvisioning = false,
-                            peerProvisionError = null,
-                            tunnelAddress = registration,
-                            serverLabel = "Устройство зарегистрировано · подключаем WireGuard…",
-                        )
-                        persistProfile()
-                    }.onFailure { error ->
+                    } catch (error: Exception) {
                         _state.value = _state.value.copy(
                             isPeerProvisioning = false,
                             peerProvisionError =
                                 error.message ?: "Автоматическая регистрация peer недоступна",
-                            serverLabel = "Peer auto-registration недоступен · используем сохранённый адрес",
+                            serverLabel = "Gateway не подтвердил регистрацию устройства",
                         )
                         debugLog(
-                            "Peer provisioning fallback: ${error::class.java.simpleName}",
+                            "Peer provisioning blocked connect: ${error::class.java.simpleName}",
                         )
+                        throw error
                     }
+
+                    tunnelAddress = registration
+                    _state.value = _state.value.copy(
+                        isPeerProvisioning = false,
+                        peerProvisionError = null,
+                        tunnelAddress = registration,
+                        serverLabel = "Устройство зарегистрировано · подключаем WireGuard…",
+                    )
+                    persistProfile()
                 }
 
                 val profile = TunnelProfile(
