@@ -242,7 +242,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess { nodes ->
                 _state.value = _state.value.copy(
                     gatewayDirectory = nodes,
-                    gatewayDirectoryLoading = false,
+                    gatewayDirectoryLoading = nodes.isNotEmpty(),
                     gatewayDirectoryError = if (nodes.isEmpty()) {
                         "Нет доступных Gateway"
                     } else {
@@ -273,6 +273,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }.toMap()
 
                 _state.value = _state.value.copy(
+                    gatewayDirectoryLoading = false,
                     gatewayDirectoryPingMs = pingMap,
                     gatewayDirectoryLossPct = lossMap,
                 )
@@ -289,7 +290,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectAutoRoute(mode: String) {
-        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
+        val snapshot = _state.value
+        if (snapshot.isBoosting || snapshot.isTunnelConnecting) return
+        if (!snapshot.controlPlaneUrl.startsWith("https://")) {
+            _state.value = snapshot.copy(
+                gatewayDirectoryError = "Сначала настрой BOOSTLAB Control Server",
+            )
+            return
+        }
 
         val normalized = when (mode.trim().uppercase()) {
             "LOW_PING" -> "LOW_PING"
