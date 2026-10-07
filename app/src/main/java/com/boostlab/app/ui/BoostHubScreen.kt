@@ -832,6 +832,25 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MetricBox(
+                    "LINK MTU",
+                    state.networkMtu?.toString() ?: "—",
+                    Modifier.weight(1f),
+                )
+                MetricBox(
+                    "WG MTU",
+                    state.tunnelMtu.toString(),
+                    Modifier.weight(1f),
+                )
+                MetricBox(
+                    "HANDOFF",
+                    if (state.routeHealth == "NETWORK_CHANGED") "CHECK" else "OK",
+                    Modifier.weight(1f),
+                )
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricBox("VPN ↓", trafficLabel(state.tunnelRxBytes), Modifier.weight(1f))
                 MetricBox("VPN ↑", trafficLabel(state.tunnelTxBytes), Modifier.weight(1f))
                 MetricBox("ROUTE", state.routeHealth, Modifier.weight(1f))
@@ -873,7 +892,11 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 Text("Режим: ${state.boostMode} · регион: ${state.preferredRegion}", color = HubMuted, fontSize = 11.sp)
                 Text(
                     "Маршрут: ${state.routeHealth} · ошибок проверки подряд: ${state.routeProbeFailures}",
-                    color = if (state.routeHealth == "DEGRADED") HubError else HubMuted,
+                    color = if (state.routeHealth in setOf("DEGRADED", "NETWORK_CHANGED")) {
+                        HubError
+                    } else {
+                        HubMuted
+                    },
                     fontSize = 11.sp,
                 )
                 Spacer(Modifier.height(8.dp))
