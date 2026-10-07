@@ -238,6 +238,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setAutoSelectBestNode(enabled: Boolean) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting || _state.value.isAutoSelecting) return
         val updated = userSettingsStore.load().copy(autoSelectBestNode = enabled)
         userSettingsStore.save(updated)
         _state.value = _state.value.copy(autoSelectBestNode = enabled)
@@ -246,6 +247,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setPreferredRegion(region: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting || _state.value.isAutoSelecting) return
         val normalized = region.trim().uppercase().ifBlank { "AUTO" }
         val updated = userSettingsStore.load().copy(preferredRegion = normalized)
         userSettingsStore.save(updated)
@@ -255,6 +257,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setBoostMode(mode: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting || _state.value.isAutoSelecting) return
         val normalized = mode.trim().uppercase().let {
             when (it) {
                 "LOW_PING", "STABLE" -> it
@@ -269,6 +272,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setCustomDnsEnabled(enabled: Boolean) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         val updated = userSettingsStore.load().copy(customDnsEnabled = enabled)
         userSettingsStore.save(updated)
         _state.value = _state.value.copy(customDnsEnabled = enabled)
@@ -276,6 +280,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addCustomDns(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         val dns = value.trim()
         if (dns.isBlank() || dns.length > 253 || dns.any { it.isWhitespace() }) return
         val current = userSettingsStore.load()
@@ -287,6 +292,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun removeCustomDns(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
         val current = userSettingsStore.load()
         val servers = current.customDnsServers.filterNot { it == value }
         val updated = current.copy(customDnsServers = servers)
