@@ -127,6 +127,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             wireGuardPort = saved.wireGuardPort,
             tunnelAddress = saved.tunnelAddress,
             dnsServer = saved.dnsServer,
+            provisioningEnrollmentCode = saved.provisioningEnrollmentCode,
             gameLaunchMode = savedApp?.let { gameProfileStore.load(it.packageName) }
                 ?: GameLaunchMode.SMART,
             pinnedPackages = pinned,
@@ -1098,6 +1099,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(
             dnsServer = value.trim(),
             tunnelError = null,
+        )
+        persistProfile()
+    }
+
+    fun updateProvisioningEnrollmentCode(value: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
+        _state.value = _state.value.copy(
+            provisioningEnrollmentCode = value.trim(),
+            peerProvisionError = null,
         )
         persistProfile()
     }
@@ -2446,7 +2456,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val publicKey = deviceAuthStore.publicKeyBase64()
-        val challenge = controlPlane.requestDeviceChallenge(baseUrl, publicKey)
+        val challenge = controlPlane.requestDeviceChallenge(
+            baseUrl = baseUrl,
+            publicKeyBase64 = publicKey,
+            enrollmentCode = _state.value.provisioningEnrollmentCode,
+        )
         val signature = deviceAuthStore.sign(challenge.message)
         val session = controlPlane.exchangeDeviceSession(
             baseUrl = baseUrl,
@@ -2459,7 +2473,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         deviceAccessTokenExpiresAtEpochMs = session.expiresAtEpochMs
         _state.value = _state.value.copy(
             deviceAuthId = session.deviceId,
+            provisioningEnrollmentCode = "",
         )
+        persistProfile()
         return session.deviceId to session.accessToken
     }
 
@@ -2506,6 +2522,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 wireGuardPort = snapshot.wireGuardPort,
                 tunnelAddress = snapshot.tunnelAddress,
                 dnsServer = snapshot.dnsServer,
+                provisioningEnrollmentCode = snapshot.provisioningEnrollmentCode,
             ),
         )
     }
