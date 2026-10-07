@@ -11,6 +11,8 @@ data class GatewayRuntimeStatus(
     val goroutines: Int,
     val heapAllocMb: Double,
     val load1: Double?,
+    val dataPlaneConfigured: Boolean = true,
+    val dataPlaneReady: Boolean = true,
 )
 
 class GatewayStatusClient {
@@ -40,6 +42,8 @@ class GatewayStatusClient {
                 } else {
                     null
                 },
+                dataPlaneConfigured = json.optBoolean("data_plane_configured", true),
+                dataPlaneReady = json.optBoolean("data_plane_ready", true),
             )
         } finally {
             connection.disconnect()
