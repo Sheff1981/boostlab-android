@@ -42,13 +42,37 @@ class GameBoostEngine(
 
         val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
         val activeNetwork = connectivityManager?.activeNetwork
-        val networkCapabilities = if (connectivityManager != null && activeNetwork != null) {
+        val activeCapabilities = if (connectivityManager != null && activeNetwork != null) {
             connectivityManager.getNetworkCapabilities(activeNetwork)
         } else {
             null
         }
-        val networkMtu = if (connectivityManager != null && activeNetwork != null) {
-            connectivityManager.getLinkProperties(activeNetwork)
+
+        val physicalNetwork = if (
+            connectivityManager != null &&
+            activeCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        ) {
+            connectivityManager.allNetworks.firstOrNull { candidate ->
+                val caps = connectivityManager.getNetworkCapabilities(candidate) ?: return@firstOrNull false
+                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    (
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                        )
+            }
+        } else {
+            activeNetwork
+        }
+
+        val networkCapabilities = if (connectivityManager != null && physicalNetwork != null) {
+            connectivityManager.getNetworkCapabilities(physicalNetwork)
+        } else {
+            activeCapabilities
+        }
+        val networkMtu = if (connectivityManager != null && physicalNetwork != null) {
+            connectivityManager.getLinkProperties(physicalNetwork)
                 ?.mtu
                 ?.takeIf { it in 1280..9000 }
         } else {
@@ -78,7 +102,7 @@ class GameBoostEngine(
             ),
             networkTransport = networkTransportLabel(networkCapabilities),
             networkMtu = networkMtu,
-            vpnActive = networkCapabilities?.hasTransport(
+            vpnActive = activeCapabilities?.hasTransport(
                 NetworkCapabilities.TRANSPORT_VPN,
             ) == true,
         )
