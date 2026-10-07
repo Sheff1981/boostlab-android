@@ -101,6 +101,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private var deviceAccessToken: String? = null
     private var deviceAccessTokenExpiresAtEpochMs = 0L
     private var authenticatedDeviceId: String? = null
+    private val gatewayCooldownUntil = mutableMapOf<String, Long>()
 
     private val _state = MutableStateFlow(BoostState())
     val state: StateFlow<BoostState> = _state.asStateFlow()
@@ -1240,13 +1241,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 val snapshot = _state.value
                 val fetchedNodes = controlPlane.fetchNodes(snapshot.controlPlaneUrl)
+                cleanupGatewayCooldowns()
+                val availableNodes = fetchedNodes.filterNot { node ->
+                    isGatewayCoolingDown(node.id)
+                }
+                if (availableNodes.isEmpty() && fetchedNodes.isNotEmpty()) {
+                    error("Все Gateway временно исключены после ошибок подключения")
+                }
+
                 val preferredRegion = snapshot.preferredRegion
                 val regionalNodes = if (preferredRegion == "AUTO") {
-                    fetchedNodes
+                    availableNodes
                 } else {
-                    fetchedNodes
+                    availableNodes
                         .filter { it.region.contains(preferredRegion, ignoreCase = true) }
-                        .ifEmpty { fetchedNodes }
+                        .ifEmpty { availableNodes }
                 }
                 val nodes = regionalNodes.take(MAX_AUTO_NODES)
                 if (nodes.isEmpty()) {
@@ -1788,6 +1797,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                 error.message ?: "Автоматическая регистрация peer недоступна",
                             serverLabel = "Gateway не подтвердил регистрацию устройства",
                         )
+                        snapshot.selectedGatewayId?.let(::markGatewayFailure)
                         debugLog(
                             "Peer provisioning blocked connect: ${error::class.java.simpleName}",
                         )
@@ -1839,6 +1849,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
 
                 if (tunnelState == Tunnel.State.UP) {
+                    snapshot.selectedGatewayId?.let(::clearGatewayFailure)
                     _state.value = _state.value.copy(
                         boostStartedAtEpochMs = _state.value.boostStartedAtEpochMs ?: System.currentTimeMillis(),
                     )
@@ -1851,6 +1862,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     stopLiveMetrics()
                 }
             }.onFailure { error ->
+                if (error.message?.contains("handshake", ignoreCase = true) == true) {
+                    snapshot.selectedGatewayId?.let(::markGatewayFailure)
+                }
                 stopLiveMetrics()
                 trafficBaselineRx = 0L
                 trafficBaselineTx = 0L
@@ -2486,6 +2500,26 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { appContext.startActivity(chooser) }
     }
 
+    private fun markGatewayFailure(nodeId: String) {
+        val id = nodeId.trim()
+        if (id.isBlank()) return
+        gatewayCooldownUntil[id] = System.currentTimeMillis() + GATEWAY_FAILURE_COOLDOWN_MS
+    }
+
+    private fun clearGatewayFailure(nodeId: String) {
+        gatewayCooldownUntil.remove(nodeId.trim())
+    }
+
+    private fun cleanupGatewayCooldowns() {
+        val now = System.currentTimeMillis()
+        gatewayCooldownUntil.entries.removeAll { it.value <= now }
+    }
+
+    private fun isGatewayCoolingDown(nodeId: String): Boolean {
+        val until = gatewayCooldownUntil[nodeId.trim()] ?: return false
+        return until > System.currentTimeMillis()
+    }
+
     private suspend fun ensureDeviceSession(baseUrl: String): Pair<String, String> {
         val now = System.currentTimeMillis()
         val cachedToken = deviceAccessToken
@@ -2604,5 +2638,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_DIRECT_WIN_CYCLES = 3
         private const val DEVICE_SESSION_REFRESH_MARGIN_MS = 30_000L
         private const val LIVE_MTU_DRIFT_THRESHOLD = 40
+        private const val GATEWAY_FAILURE_COOLDOWN_MS = 120_000L
     }
 }
