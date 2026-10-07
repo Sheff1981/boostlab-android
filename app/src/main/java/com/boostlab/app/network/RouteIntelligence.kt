@@ -38,12 +38,13 @@ object RouteIntelligence {
         directByTarget: Map<String, RouteMetrics>,
         phoneToGatewayMetrics: RouteMetrics,
         gatewayToGameMetrics: RouteMetrics,
+        capacityPenalty: Double = 0.0,
         scorer: (RouteMetrics) -> Double = RouteScorer::score,
     ): IntelligentRouteCandidate? {
         val directMetrics = directByTarget[target.id] ?: return null
         val boostedMetrics = combine(phoneToGatewayMetrics, gatewayToGameMetrics)
         val directScore = scorer(directMetrics)
-        val boostedScore = scorer(boostedMetrics)
+        val boostedScore = scorer(boostedMetrics) + capacityPenalty.coerceAtLeast(0.0)
         if (!directScore.isFinite() || !boostedScore.isFinite()) return null
 
         return IntelligentRouteCandidate(
