@@ -5,10 +5,104 @@ import com.boostlab.app.model.GameCatalogTag
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class DeviceAuthChallenge(
+    val challengeId: String,
+    val message: String,
+)
+
+data class DeviceAuthSession(
+    val deviceId: String,
+    val accessToken: String,
+)
+
+data class GatewayProvisionTicket(
+    val deviceId: String,
+    val gatewayUrl: String,
+    val ticket: String,
+)
+
 class ControlPlaneClient {
+    suspend fun requestDeviceChallenge(
+        baseUrl: String,
+        publicKeyBase64: String,
+    ): DeviceAuthChallenge = withContext(Dispatchers.IO) {
+        val normalized = normalizeBaseUrl(baseUrl)
+        val body = JSONObject()
+            .put("public_key", publicKeyBase64.trim())
+            .toString()
+        val connection = openJsonPost("$normalized/v1/auth/challenge", body)
+        try {
+            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                "Device challenge HTTP ${connection.responseCode}"
+            }
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            DeviceAuthChallenge(
+                challengeId = json.getString("challenge_id"),
+                message = json.getString("message"),
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    suspend fun exchangeDeviceSession(
+        baseUrl: String,
+        challengeId: String,
+        signatureBase64: String,
+    ): DeviceAuthSession = withContext(Dispatchers.IO) {
+        val normalized = normalizeBaseUrl(baseUrl)
+        val body = JSONObject()
+            .put("challenge_id", challengeId.trim())
+            .put("signature", signatureBase64.trim())
+            .toString()
+        val connection = openJsonPost("$normalized/v1/auth/session", body)
+        try {
+            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                "Device session HTTP ${connection.responseCode}"
+            }
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            DeviceAuthSession(
+                deviceId = json.getString("device_id"),
+                accessToken = json.getString("access_token"),
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    suspend fun requestGatewayProvisionTicket(
+        baseUrl: String,
+        nodeId: String,
+        accessToken: String,
+        wireGuardPublicKey: String,
+    ): GatewayProvisionTicket = withContext(Dispatchers.IO) {
+        val normalized = normalizeBaseUrl(baseUrl)
+        val encodedNode = java.net.URLEncoder.encode(nodeId.trim(), Charsets.UTF_8.name())
+        val body = JSONObject()
+            .put("wireguard_public_key", wireGuardPublicKey.trim())
+            .toString()
+        val connection = openJsonPost("$normalized/v1/provision/$encodedNode", body).apply {
+            setRequestProperty("Authorization", "Bearer ${accessToken.trim()}")
+        }
+        try {
+            require(connection.responseCode == HttpURLConnection.HTTP_OK) {
+                "Gateway provisioning ticket HTTP ${connection.responseCode}"
+            }
+            val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            GatewayProvisionTicket(
+                deviceId = json.getString("device_id"),
+                gatewayUrl = json.getString("gateway_url"),
+                ticket = json.getString("ticket"),
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     suspend fun fetchNodes(baseUrl: String): List<GatewayNode> = withContext(Dispatchers.IO) {
         val normalized = normalizeBaseUrl(baseUrl)
         val connection = openGet("$normalized/v1/nodes")
@@ -150,6 +244,19 @@ class ControlPlaneClient {
             readTimeout = 3_000
             instanceFollowRedirects = false
             setRequestProperty("Accept", "application/json")
+        }
+    }
+
+    private fun openJsonPost(url: String, body: String): HttpURLConnection {
+        return (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 4_000
+            readTimeout = 4_000
+            instanceFollowRedirects = false
+            doOutput = true
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Content-Type", "application/json")
+            outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         }
     }
 }
