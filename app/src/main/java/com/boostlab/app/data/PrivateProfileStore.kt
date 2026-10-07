@@ -12,6 +12,7 @@ data class PrivateServerProfile(
     val wireGuardPort: Int,
     val tunnelAddress: String,
     val dnsServer: String,
+    val provisioningEnrollmentCode: String,
 )
 
 class PrivateProfileStore(context: Context) {
@@ -52,6 +53,10 @@ class PrivateProfileStore(context: Context) {
             KEY_DNS_SERVER,
             BuildConfig.BOOSTLAB_DEFAULT_DNS_SERVER,
         ) ?: BuildConfig.BOOSTLAB_DEFAULT_DNS_SERVER,
+        provisioningEnrollmentCode = preferences.getString(
+            KEY_ENROLLMENT_CODE,
+            "",
+        ).orEmpty(),
     )
 
     fun save(profile: PrivateServerProfile) {
@@ -64,6 +69,7 @@ class PrivateProfileStore(context: Context) {
             .putInt(KEY_WG_PORT, profile.wireGuardPort)
             .putString(KEY_TUNNEL_ADDRESS, profile.tunnelAddress)
             .putString(KEY_DNS_SERVER, profile.dnsServer)
+            .putString(KEY_ENROLLMENT_CODE, profile.provisioningEnrollmentCode)
             .apply()
     }
 
@@ -77,5 +83,6 @@ class PrivateProfileStore(context: Context) {
         private const val KEY_WG_PORT = "wg_port"
         private const val KEY_TUNNEL_ADDRESS = "tunnel_address"
         private const val KEY_DNS_SERVER = "dns_server"
+        private const val KEY_ENROLLMENT_CODE = "provisioning_enrollment_code"
     }
 }
