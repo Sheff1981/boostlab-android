@@ -47,6 +47,12 @@ jobs:
       - name: Build and test
         run: gradle :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 
+      - name: Require stable signing on manual release
+        if: github.event_name == 'workflow_dispatch' && env.BOOSTLAB_SIGNING_PASSWORD == ''
+        run: |
+          echo "::error::BOOSTLAB_SIGNING_PASSWORD is not configured. Refusing to publish an unsigned/ephemeral customer build."
+          exit 1
+
       - name: Prepare stable signing
         if: env.BOOSTLAB_SIGNING_PASSWORD != ''
         run: |
@@ -65,13 +71,18 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
-          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$APK" >/dev/null
+          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$APK" | tee "$RUNNER_TEMP/badging.txt"
+          grep -q "package: name='com.boostlab.app'" "$RUNNER_TEMP/badging.txt"
+          CERT_SHA256=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
+          test -n "$CERT_SHA256"
+          echo "BOOSTLAB_CERT_SHA256=$CERT_SHA256" >> "$GITHUB_ENV"
 
       - name: Publish stable APK file
         if: env.BOOSTLAB_SIGNING_PASSWORD != ''
         run: |
           cp app/build/outputs/apk/release/app-release.apk BOOSTLAB-stable-latest.apk
           sha256sum BOOSTLAB-stable-latest.apk > BOOSTLAB-stable-latest.apk.sha256
+          printf '%s  %s\n' "$BOOSTLAB_CERT_SHA256" "signing-certificate-sha256" > BOOSTLAB-stable-latest.cert.sha256
 
       - name: Upload stable APK
         if: env.BOOSTLAB_SIGNING_PASSWORD != ''
@@ -81,6 +92,7 @@ jobs:
           path: |
             BOOSTLAB-stable-latest.apk
             BOOSTLAB-stable-latest.apk.sha256
+            BOOSTLAB-stable-latest.cert.sha256
           if-no-files-found: error
           retention-days: 30
 
