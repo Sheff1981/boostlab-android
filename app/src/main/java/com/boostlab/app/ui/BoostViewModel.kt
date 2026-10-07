@@ -1309,9 +1309,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                     samples = AUTO_FINAL_SAMPLES,
                                 )
                                 val runtimeStatus = node.routeApiUrl?.let { routeApiUrl ->
-                                    runCatching {
-                                        gatewayStatusClient.fetch(routeApiUrl)
-                                    }.getOrNull()
+                                    gatewayStatusClient.fetch(routeApiUrl)
+                                }
+                                if (runtimeStatus != null && !runtimeStatus.dataPlaneReady) {
+                                    error("Gateway data plane is not ready")
                                 }
                                 val capacityPenalty = GatewayCapacityPolicy.penalty(runtimeStatus)
                                 GatewayMeasurement(
