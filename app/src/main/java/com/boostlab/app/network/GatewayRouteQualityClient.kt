@@ -18,7 +18,7 @@ class GatewayRouteQualityClient {
         val connection = (URL("$base/v1/route-quality/$encoded").openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 2_500
-            readTimeout = 5_000
+            readTimeout = 9_000
             instanceFollowRedirects = false
             setRequestProperty("Accept", "application/json")
         }
