@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1361,6 +1362,24 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
                     value = state.controlPlaneUrl,
                     onValueChange = viewModel::updateControlPlaneUrl,
                     label = { Text("Control API HTTPS") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = state.provisioningEnrollmentCode,
+                    onValueChange = viewModel::updateProvisioningEnrollmentCode,
+                    label = { Text("Код подключения устройства (1 раз)") },
+                    supportingText = {
+                        Text(
+                            if (state.deviceAuthId == null) {
+                                "Нужен только для первой регистрации этого телефона"
+                            } else {
+                                "Устройство: ${state.deviceAuthId}"
+                            },
+                        )
+                    },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
