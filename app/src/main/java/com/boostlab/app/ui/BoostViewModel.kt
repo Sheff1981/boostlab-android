@@ -59,6 +59,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import kotlin.math.abs
 
 class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
@@ -1966,6 +1967,22 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 val snapshot = _state.value
                 if (snapshot.gatewayHost.isBlank()) break
 
+                val liveReadiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
+                val liveTransport = liveReadiness?.networkTransport
+                val liveRecommendedMtu = TunnelMtuPolicy.choose(
+                    linkMtu = liveReadiness?.networkMtu,
+                    networkTransport = liveTransport,
+                )
+                val physicalNetworkChanged = (
+                    !snapshot.routeDecisionTransport.isNullOrBlank() &&
+                        !liveTransport.isNullOrBlank() &&
+                        snapshot.routeDecisionTransport != liveTransport
+                    )
+                val mtuChanged = (
+                    liveReadiness?.networkMtu != null &&
+                        abs(liveRecommendedMtu - snapshot.tunnelMtu) >= LIVE_MTU_DRIFT_THRESHOLD
+                    )
+
                 when (runCatching { tunnelController.state() }.getOrNull()) {
                     Tunnel.State.DOWN -> {
                         val history = recordBoostSessionIfNeeded()
@@ -2108,7 +2125,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             boostedEstimatedP95Ms = endToEndMetrics.p95RttMs,
                             routeGainMs = gainMs,
                             routeProbeFailures = consecutiveProbeFailures,
+                            networkTransport = liveTransport ?: _state.value.networkTransport,
+                            networkMtu = liveReadiness?.networkMtu ?: _state.value.networkMtu,
                             routeHealth = when {
+                                physicalNetworkChanged || mtuChanged -> "NETWORK_CHANGED"
                                 consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES -> "DEGRADED"
                                 consecutiveDirectWins >= MAX_DIRECT_WIN_CYCLES -> "DIRECT_BETTER"
                                 verified && cachedGatewayToGame != null -> "GAME_ROUTE"
@@ -2116,6 +2136,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                 else -> "CONNECTED"
                             },
                             serverLabel = when {
+                                physicalNetworkChanged ->
+                                    "Сеть изменилась: ${snapshot.routeDecisionTransport} → $liveTransport · переподключи Boost"
+                                mtuChanged ->
+                                    "MTU сети изменился · переподключи Boost"
                                 consecutiveDirectWins >= MAX_DIRECT_WIN_CYCLES &&
                                     gainMs != null &&
                                     gainMs < 0 ->
@@ -2578,5 +2602,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val ROUTE_REGRESSION_MS = 10
         private const val MAX_DIRECT_WIN_CYCLES = 3
         private const val DEVICE_SESSION_REFRESH_MARGIN_MS = 30_000L
+        private const val LIVE_MTU_DRIFT_THRESHOLD = 40
     }
 }
