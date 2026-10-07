@@ -1890,6 +1890,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         stopLiveMetrics()
         liveMetricsJob = viewModelScope.launch {
             var consecutiveProbeFailures = 0
+            var consecutiveDirectWins = 0
             var intelligenceCycle = 0
             var cachedGatewayToGame: com.boostlab.app.network.RouteMetrics? = null
             var cachedDirectToGame: com.boostlab.app.network.RouteMetrics? = null
@@ -1963,6 +1964,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             !snapshot.routeTargetHost.isNullOrBlank() &&
                             snapshot.routeTargetPort != null
 
+                    var routeMetricsRefreshed = false
                     if (
                         intelligenceReady &&
                         (
@@ -1971,7 +1973,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                 cachedDirectToGame == null
                             )
                     ) {
-                        cachedGatewayToGame = runCatching {
+                        val freshGatewayToGame = runCatching {
                             gatewayRouteQuality.fetch(
                                 routeApiUrl = requireNotNull(snapshot.selectedRouteApiUrl),
                                 target = com.boostlab.app.network.GameRouteTarget(
@@ -1980,15 +1982,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                     tcpPort = requireNotNull(snapshot.routeTargetPort),
                                 ),
                             ).metrics
-                        }.getOrElse { cachedGatewayToGame }
+                        }.getOrNull()
 
-                        cachedDirectToGame = runCatching {
+                        val freshDirectToGame = runCatching {
                             directRouteProbe.measure(
                                 host = requireNotNull(snapshot.routeTargetHost),
                                 port = requireNotNull(snapshot.routeTargetPort),
                                 samples = LIVE_DIRECT_ROUTE_SAMPLES,
                             )
-                        }.getOrElse { cachedDirectToGame }
+                        }.getOrNull()
+
+                        if (freshGatewayToGame != null && freshDirectToGame != null) {
+                            cachedGatewayToGame = freshGatewayToGame
+                            cachedDirectToGame = freshDirectToGame
+                            routeMetricsRefreshed = true
+                        }
                     }
 
                     intelligenceCycle += 1
@@ -2004,6 +2012,17 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         directMetrics.medianRttMs - endToEndMetrics.medianRttMs
                     } else {
                         snapshot.routeGainMs
+                    }
+
+                    if (routeMetricsRefreshed && intelligenceReady) {
+                        consecutiveDirectWins = if (
+                            gainMs != null &&
+                            gainMs <= -ROUTE_REGRESSION_MS
+                        ) {
+                            consecutiveDirectWins + 1
+                        } else {
+                            0
+                        }
                     }
 
                     if (_state.value.isBoosting) {
@@ -2024,18 +2043,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             routeProbeFailures = consecutiveProbeFailures,
                             routeHealth = when {
                                 consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES -> "DEGRADED"
+                                consecutiveDirectWins >= MAX_DIRECT_WIN_CYCLES -> "DIRECT_BETTER"
                                 verified && cachedGatewayToGame != null -> "GAME_ROUTE"
                                 verified -> "TRAFFIC"
                                 else -> "CONNECTED"
                             },
-                            serverLabel = if (
+                            serverLabel = when {
+                                consecutiveDirectWins >= MAX_DIRECT_WIN_CYCLES &&
+                                    gainMs != null &&
+                                    gainMs < 0 ->
+                                    "DIRECT теперь быстрее · BOOST +${-gainMs} ms"
                                 gainMs != null &&
-                                gainMs > 0 &&
-                                snapshot.routeRecommendation == "BOOST"
-                            ) {
-                                "BEST ROUTE: ${snapshot.selectedGatewayRegion ?: "Gateway"} · −$gainMs ms"
-                            } else {
-                                _state.value.serverLabel
+                                    gainMs > 0 &&
+                                    snapshot.routeRecommendation == "BOOST" ->
+                                    "BEST ROUTE: ${snapshot.selectedGatewayRegion ?: "Gateway"} · −$gainMs ms"
+                                else -> _state.value.serverLabel
                             },
                         )
                     }
@@ -2418,5 +2440,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val LIVE_DIRECT_ROUTE_SAMPLES = 3
         private const val LIVE_ROUTE_REFRESH_CYCLES = 2
         private const val MAX_ROUTE_DECISION_AGE_MS = 2L * 60L * 1000L
+        private const val ROUTE_REGRESSION_MS = 10
+        private const val MAX_DIRECT_WIN_CYCLES = 3
     }
 }
