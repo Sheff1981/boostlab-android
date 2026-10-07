@@ -70,6 +70,7 @@ data class BoostState(
     val wireGuardPort: Int = 51820,
     val tunnelAddress: String = "10.77.0.2/32",
     val dnsServer: String = "1.1.1.1",
+    val provisioningEnrollmentCode: String = "",
 
     val controlPlaneUrl: String = "",
     val isAutoSelecting: Boolean = false,
