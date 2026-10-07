@@ -1318,6 +1318,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     isAutoSelecting = false,
+                    selectedGatewayId = null,
+                    selectedGatewayRegion = null,
+                    selectedRouteApiUrl = null,
                     serverLabel = "Автовыбор не удался",
                     probeError = error.message ?: "Неизвестная ошибка",
                 )
