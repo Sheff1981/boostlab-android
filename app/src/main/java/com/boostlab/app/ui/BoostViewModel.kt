@@ -192,11 +192,163 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             boostedEstimatedP95Ms = null,
             routeGainMs = null,
             routeCandidatesTested = 0,
+            routeSelectorVisible = true,
         )
         refreshGameReadiness()
         persistProfile()
         debugLog("Выбрано приложение: ${app.label} [${app.packageName}]")
         addEvent("Игра", "Выбрана ${app.label}")
+        refreshGatewayDirectory()
+    }
+
+    fun closeRouteSelector() {
+        if (_state.value.isAutoSelecting || _state.value.isTunnelConnecting) return
+        _state.value = _state.value.copy(routeSelectorVisible = false)
+    }
+
+    fun refreshGatewayDirectory() {
+        val snapshot = _state.value
+        if (
+            snapshot.gatewayDirectoryLoading ||
+            snapshot.isAutoSelecting ||
+            snapshot.isBoosting ||
+            snapshot.isTunnelConnecting
+        ) return
+
+        if (!snapshot.controlPlaneUrl.startsWith("https://")) {
+            _state.value = snapshot.copy(
+                gatewayDirectoryLoading = false,
+                gatewayDirectory = emptyList(),
+                gatewayDirectoryPingMs = emptyMap(),
+                gatewayDirectoryLossPct = emptyMap(),
+                gatewayDirectoryError = "Сеть BOOSTLAB ещё не настроена",
+            )
+            return
+        }
+
+        _state.value = snapshot.copy(
+            gatewayDirectoryLoading = true,
+            gatewayDirectoryError = null,
+        )
+
+        viewModelScope.launch {
+            runCatching {
+                controlPlane.fetchNodes(_state.value.controlPlaneUrl)
+                    .filter {
+                        !it.wireGuardPublicKey.isNullOrBlank() &&
+                            it.wireGuardPort != null
+                    }
+                    .take(MAX_DIRECTORY_NODES)
+            }.onSuccess { nodes ->
+                _state.value = _state.value.copy(
+                    gatewayDirectory = nodes,
+                    gatewayDirectoryLoading = false,
+                    gatewayDirectoryError = if (nodes.isEmpty()) {
+                        "Нет доступных Gateway"
+                    } else {
+                        null
+                    },
+                )
+
+                val measurements = coroutineScope {
+                    nodes.map { node ->
+                        async {
+                            val metrics = runCatching {
+                                routeProbe.measure(
+                                    host = node.host,
+                                    port = node.udpPort,
+                                    samples = DIRECTORY_SAMPLES,
+                                )
+                            }.getOrNull()
+                            node.id to metrics
+                        }
+                    }.awaitAll()
+                }
+
+                val pingMap = measurements.mapNotNull { (id, metrics) ->
+                    metrics?.medianRttMs?.let { id to it }
+                }.toMap()
+                val lossMap = measurements.mapNotNull { (id, metrics) ->
+                    metrics?.let { id to it.packetLossPct }
+                }.toMap()
+
+                _state.value = _state.value.copy(
+                    gatewayDirectoryPingMs = pingMap,
+                    gatewayDirectoryLossPct = lossMap,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    gatewayDirectoryLoading = false,
+                    gatewayDirectory = emptyList(),
+                    gatewayDirectoryPingMs = emptyMap(),
+                    gatewayDirectoryLossPct = emptyMap(),
+                    gatewayDirectoryError = error.message ?: "Не удалось загрузить серверы",
+                )
+            }
+        }
+    }
+
+    fun selectAutoRoute(mode: String) {
+        if (_state.value.isBoosting || _state.value.isTunnelConnecting) return
+
+        val normalized = when (mode.trim().uppercase()) {
+            "LOW_PING" -> "LOW_PING"
+            "STABLE" -> "STABLE"
+            else -> "SMART"
+        }
+        val settings = userSettingsStore.load().copy(
+            autoSelectBestNode = true,
+            boostMode = normalized,
+            preferredRegion = "AUTO",
+        )
+        userSettingsStore.save(settings)
+        _state.value = _state.value.copy(
+            autoSelectBestNode = true,
+            boostMode = normalized,
+            preferredRegion = "AUTO",
+            routeSelectorVisible = false,
+            tunnelError = null,
+        )
+        invalidateRouteIntelligence()
+        autoSelectGateway()
+    }
+
+    fun selectGatewayFromDirectory(nodeId: String) {
+        val snapshot = _state.value
+        if (
+            snapshot.isBoosting ||
+            snapshot.isTunnelConnecting ||
+            snapshot.isAutoSelecting
+        ) return
+        val node = snapshot.gatewayDirectory.firstOrNull { it.id == nodeId } ?: return
+        val publicKey = node.wireGuardPublicKey ?: return
+        val wireGuardPort = node.wireGuardPort ?: return
+
+        val settings = userSettingsStore.load().copy(autoSelectBestNode = false)
+        userSettingsStore.save(settings)
+        _state.value = snapshot.copy(
+            autoSelectBestNode = false,
+            routeSelectorVisible = false,
+            gatewayHost = node.host,
+            gatewayPort = node.udpPort,
+            wireGuardServerPublicKey = publicKey,
+            wireGuardPort = wireGuardPort,
+            selectedGatewayId = node.id,
+            selectedGatewayRegion = node.region,
+            selectedRouteApiUrl = node.routeApiUrl,
+            routeRecommendation = "GATEWAY_ONLY",
+            pingMs = snapshot.gatewayDirectoryPingMs[node.id],
+            p95PingMs = null,
+            jitterMs = null,
+            packetLossPct = snapshot.gatewayDirectoryLossPct[node.id],
+            serverLabel = node.displayName
+                ?: node.city?.let { "${node.countryCode ?: node.region} · $it" }
+                ?: node.region,
+            probeError = null,
+            tunnelError = null,
+        )
+        persistProfile()
+        probeGateway()
     }
 
     fun togglePinnedApp(app: BoostApp) {
@@ -2082,6 +2234,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val MAX_AUTO_NODES = 8
+        private const val MAX_DIRECTORY_NODES = 64
+        private const val DIRECTORY_SAMPLES = 3
         private const val AUTO_SAMPLES = 6
         private const val LAN_AUTO_SAMPLES = 4
         private const val LIVE_METRICS_SAMPLES = 4
