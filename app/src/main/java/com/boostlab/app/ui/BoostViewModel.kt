@@ -241,6 +241,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val updated = userSettingsStore.load().copy(autoSelectBestNode = enabled)
         userSettingsStore.save(updated)
         _state.value = _state.value.copy(autoSelectBestNode = enabled)
+        invalidateRouteIntelligence()
         debugLog("Автовыбор лучшего узла: $enabled")
     }
 
@@ -249,6 +250,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val updated = userSettingsStore.load().copy(preferredRegion = normalized)
         userSettingsStore.save(updated)
         _state.value = _state.value.copy(preferredRegion = normalized)
+        invalidateRouteIntelligence()
         debugLog("Регион узла: $normalized")
     }
 
@@ -262,6 +264,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val updated = userSettingsStore.load().copy(boostMode = normalized)
         userSettingsStore.save(updated)
         _state.value = _state.value.copy(boostMode = normalized)
+        invalidateRouteIntelligence()
         debugLog("Режим Network Boost: $normalized")
     }
 
@@ -865,6 +868,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             controlPlaneUrl = value.trim(),
             probeError = null,
         )
+        invalidateRouteIntelligence(clearSelectedGateway = true)
         persistProfile()
         if (value.trim().startsWith("https://")) {
             refreshRemoteCatalog()
@@ -881,9 +885,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             gatewayHost = value.trim(),
             selectedGatewayId = null,
             selectedGatewayRegion = null,
+            selectedRouteApiUrl = null,
             probeError = null,
             tunnelError = null,
         )
+        invalidateRouteIntelligence()
         persistProfile()
     }
 
@@ -1370,6 +1376,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         val selectedApp = snapshot.selectedApp
         if (selectedApp == null) {
             _state.value = snapshot.copy(tunnelError = "Выбери приложение")
+            return
+        }
+        if (snapshot.autoSelectBestNode && snapshot.routeRecommendation == "UNKNOWN") {
+            _state.value = snapshot.copy(
+                tunnelError = "Сначала нажми «Лучший маршрут»",
+            )
             return
         }
         if (snapshot.routeRecommendation == "DIRECT" && snapshot.autoSelectBestNode) {
@@ -1945,6 +1957,29 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+    }
+
+    private fun invalidateRouteIntelligence(clearSelectedGateway: Boolean = false) {
+        val snapshot = _state.value
+        _state.value = snapshot.copy(
+            routeRecommendation = "UNKNOWN",
+            routeTargetId = null,
+            routeTargetHost = null,
+            routeTargetPort = null,
+            directPingMs = null,
+            directP95Ms = null,
+            directJitterMs = null,
+            directPacketLossPct = null,
+            boostedEstimatedPingMs = null,
+            boostedEstimatedP95Ms = null,
+            routeGainMs = null,
+            routeCandidatesTested = 0,
+            p95PingMs = null,
+            selectedGatewayId = if (clearSelectedGateway) null else snapshot.selectedGatewayId,
+            selectedGatewayRegion = if (clearSelectedGateway) null else snapshot.selectedGatewayRegion,
+            selectedRouteApiUrl = if (clearSelectedGateway) null else snapshot.selectedRouteApiUrl,
+            tunnelError = null,
+        )
     }
 
     private fun activeDnsValue(snapshot: BoostState): String {
