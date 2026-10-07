@@ -18,7 +18,7 @@ data class GameReadinessSnapshot(
     val thermalStatus: Int?,
     val networkValidated: Boolean?,
     val networkTransport: String?,
-    val vpnActive: Boolean,
+    val vpnActive: Boolean = false,
 )
 
 class GameBoostEngine(
