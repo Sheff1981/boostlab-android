@@ -20,20 +20,25 @@ jobs:
       BOOSTLAB_SIGNING_PASSWORD: ${{ secrets.BOOSTLAB_SIGNING_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
           packages: ''
+
       - name: Install SDK
         run: android sdk install platform-tools platforms/android-37 build-tools/36.0.0
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
+
       - name: Prepare build version
         run: |
           echo "BOOSTLAB_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
@@ -45,21 +50,37 @@ jobs:
       - name: Prepare stable signing
         if: env.BOOSTLAB_SIGNING_PASSWORD != ''
         run: |
+          test -f ci/boostlab-update.p12.b64
           base64 --decode ci/boostlab-update.p12.b64 > "$RUNNER_TEMP/boostlab-update.p12"
+          keytool -list             -storetype PKCS12             -keystore "$RUNNER_TEMP/boostlab-update.p12"             -storepass "$BOOSTLAB_SIGNING_PASSWORD"             -alias boostlab >/dev/null
           echo "BOOSTLAB_SIGNING_STORE_FILE=$RUNNER_TEMP/boostlab-update.p12" >> "$GITHUB_ENV"
-          echo "BOOSTLAB_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
-          echo "BOOSTLAB_VERSION_NAME=0.10.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Build stable signed APK
         if: env.BOOSTLAB_SIGNING_PASSWORD != ''
         run: gradle :app:assembleRelease
+
+      - name: Verify stable APK signature
+        if: env.BOOSTLAB_SIGNING_PASSWORD != ''
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$APK" >/dev/null
+
+      - name: Publish stable APK file
+        if: env.BOOSTLAB_SIGNING_PASSWORD != ''
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk BOOSTLAB-stable-latest.apk
+          sha256sum BOOSTLAB-stable-latest.apk > BOOSTLAB-stable-latest.apk.sha256
 
       - name: Upload stable APK
         if: env.BOOSTLAB_SIGNING_PASSWORD != ''
         uses: actions/upload-artifact@v4
         with:
           name: boostlab-android-stable
-          path: app/build/outputs/apk/release/app-release.apk
+          path: |
+            BOOSTLAB-stable-latest.apk
+            BOOSTLAB-stable-latest.apk.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -68,20 +89,5 @@ jobs:
         with:
           name: boostlab-android-debug-ephemeral-signature
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Collect APK signing tools
-        run: |
-          mkdir -p "$RUNNER_TEMP/boostlab-signing-tools/lib"
-          cp "$ANDROID_HOME/build-tools/36.0.0/apksigner" "$RUNNER_TEMP/boostlab-signing-tools/"
-          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" "$RUNNER_TEMP/boostlab-signing-tools/lib/"
-          chmod +x "$RUNNER_TEMP/boostlab-signing-tools/apksigner"
-
-      - name: Upload APK signing tools
-        uses: actions/upload-artifact@v4
-        with:
-          name: boostlab-apksigner-linux
-          path: ${{ runner.temp }}/boostlab-signing-tools/
           if-no-files-found: error
           retention-days: 7
