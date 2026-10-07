@@ -228,6 +228,15 @@ private fun GatewaySelectorPage(
             )
         }
 
+        if (state.externalVpnDetected) {
+            item {
+                InfoCard(
+                    "Другой VPN уже активен",
+                    "Отключи его перед Auto-проверкой и запуском BOOSTLAB, иначе измерения маршрута будут неверными.",
+                )
+            }
+        }
+
         item {
             GatewaySection(title = "Auto", subtitle = "Сам выберет лучший маршрут") {
                 AutoGatewayRow(
