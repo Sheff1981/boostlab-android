@@ -18,4 +18,5 @@ data class GatewayMeasurement(
     val node: GatewayNode,
     val metrics: RouteMetrics,
     val score: Double,
+    val capacityPenalty: Double = 0.0,
 )
