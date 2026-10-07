@@ -13,6 +13,7 @@ import com.boostlab.app.data.GameProfileStore
 import com.boostlab.app.data.InstalledAppsRepository
 import com.boostlab.app.data.PinnedAppsStore
 import com.boostlab.app.data.PrivateProfileStore
+import com.boostlab.app.data.RouteMemoryStore
 import com.boostlab.app.data.SocialStore
 import com.boostlab.app.data.UserSettingsStore
 import com.boostlab.app.data.PrivateServerProfile
@@ -32,6 +33,7 @@ import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
 import com.boostlab.app.network.LanGatewayDiscovery
 import com.boostlab.app.network.RouteDecisionPolicy
+import com.boostlab.app.network.RouteRacePolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.SquadApiClient
 import com.boostlab.app.network.UdpRouteProbe
@@ -62,6 +64,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val userSettingsStore = UserSettingsStore(appContext)
     private val diagnosticLogStore = DiagnosticLogStore(appContext)
     private val boostHistoryStore = BoostHistoryStore(appContext)
+    private val routeMemoryStore = RouteMemoryStore(appContext)
     private val eventStore = EventStore(appContext)
     private val socialStore = SocialStore(appContext)
     private val routeProbe = UdpRouteProbe()
@@ -1161,6 +1164,16 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     probeError = null,
                 )
                 persistProfile()
+
+                _state.value.selectedApp?.packageName?.let { selectedPackage ->
+                    routeMemoryStore.save(
+                        packageName = selectedPackage,
+                        boostMode = _state.value.boostMode,
+                        networkTransport = _state.value.networkTransport,
+                        gatewayId = gateway.node.id,
+                        gainMs = selection.gainMs,
+                    )
+                }
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     isLanDiscovering = false,
@@ -1206,24 +1219,65 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     error("Control API returned no healthy gateways")
                 }
 
+                val packageName = snapshot.selectedApp?.packageName
+                val rememberedGatewayId = packageName?.let {
+                    routeMemoryStore.load(
+                        packageName = it,
+                        boostMode = snapshot.boostMode,
+                        networkTransport = snapshot.networkTransport,
+                    )?.gatewayId
+                }
+
                 _state.value = _state.value.copy(
                     discoveredNodes = nodes.size,
-                    serverLabel = "Проверяем доступ до ${nodes.size} серверов…",
+                    serverLabel = "Быстрая гонка ${nodes.size} серверов…",
                 )
 
-                val accessMeasurements = coroutineScope {
+                val quickMeasurements = coroutineScope {
                     nodes.map { node ->
                         async {
                             runCatching {
                                 val metrics = routeProbe.measure(
                                     host = node.host,
                                     port = node.udpPort,
-                                    samples = AUTO_SAMPLES,
+                                    samples = AUTO_QUICK_SAMPLES,
                                 )
                                 GatewayMeasurement(
                                     node = node,
                                     metrics = metrics,
-                                    score = routeScore(metrics, _state.value.boostMode),
+                                    score = routeScore(metrics, snapshot.boostMode),
+                                )
+                            }.getOrNull()
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+
+                val finalists = RouteRacePolicy.shortlist(
+                    quickMeasurements = quickMeasurements,
+                    rememberedGatewayId = rememberedGatewayId,
+                    limit = AUTO_FINALISTS,
+                )
+                if (finalists.isEmpty()) {
+                    error("Нет доступного сервера, готового к бусту")
+                }
+
+                _state.value = _state.value.copy(
+                    serverLabel = "Финальная проверка ${finalists.size} серверов…",
+                )
+
+                val accessMeasurements = coroutineScope {
+                    finalists.map { node ->
+                        async {
+                            runCatching {
+                                val metrics = routeProbe.measure(
+                                    host = node.host,
+                                    port = node.udpPort,
+                                    samples = AUTO_FINAL_SAMPLES,
+                                )
+                                GatewayMeasurement(
+                                    node = node,
+                                    metrics = metrics,
+                                    score = routeScore(metrics, snapshot.boostMode),
                                 )
                             }.getOrNull()
                         }
@@ -1237,13 +1291,16 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         it.node.wireGuardPort != null
                 }
                 if (eligibleAccess.isEmpty()) {
-                    error("Нет доступного сервера, готового к бусту")
+                    error("Финалисты не подтвердили стабильный маршрут")
                 }
 
-                val packageName = snapshot.selectedApp?.packageName
-                val targets = if (!packageName.isNullOrBlank()) {
+                val packageNameForTargets = packageName
+                val targets = if (!packageNameForTargets.isNullOrBlank()) {
                     runCatching {
-                        controlPlane.fetchRouteTargets(snapshot.controlPlaneUrl, packageName)
+                        controlPlane.fetchRouteTargets(
+                            snapshot.controlPlaneUrl,
+                            packageNameForTargets,
+                        )
                     }.getOrDefault(emptyList())
                 } else {
                     emptyList()
@@ -2241,10 +2298,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     companion object {
-        private const val MAX_AUTO_NODES = 8
+        private const val MAX_AUTO_NODES = 12
+        private const val AUTO_FINALISTS = 3
+        private const val AUTO_QUICK_SAMPLES = 3
+        private const val AUTO_FINAL_SAMPLES = 7
         private const val MAX_DIRECTORY_NODES = 64
         private const val DIRECTORY_SAMPLES = 3
-        private const val AUTO_SAMPLES = 6
         private const val LAN_AUTO_SAMPLES = 4
         private const val LIVE_METRICS_SAMPLES = 4
         private const val LIVE_METRICS_INTERVAL_MS = 5_000L
