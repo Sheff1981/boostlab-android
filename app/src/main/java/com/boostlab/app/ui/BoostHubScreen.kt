@@ -505,10 +505,18 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = viewModel::probeGateway,
-                    enabled = state.gatewayHost.isNotBlank() && !state.isProbing,
+                    enabled = state.gatewayHost.isNotBlank() &&
+                        !state.isProbing &&
+                        !state.isBoosting &&
+                        !state.isTunnelConnecting &&
+                        !state.isAutoSelecting &&
+                        (
+                            !state.autoSelectBestNode ||
+                                state.routeRecommendation == "GATEWAY_ONLY"
+                            ),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(if (state.isProbing) "Проверяем ping…" else "Тест ping / jitter / loss")
+                    Text(if (state.isProbing) "Проверяем ping…" else "Тест Gateway ping / jitter / loss")
                 }
             }
         }
