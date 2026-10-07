@@ -51,6 +51,42 @@ class RouteIntelligenceTest {
     }
 
     @Test
+    fun buildCandidateUsesDirectMetricsForSameTarget() {
+        val targetA = GameRouteTarget("game-a", "a.example.com", 443)
+        val targetB = GameRouteTarget("game-b", "b.example.com", 443)
+        val directA = metrics(80)
+        val directB = metrics(35)
+
+        val candidate = RouteIntelligence.buildCandidate(
+            node = node,
+            target = targetA,
+            directByTarget = mapOf(
+                targetA.id to directA,
+                targetB.id to directB,
+            ),
+            phoneToGatewayMetrics = metrics(20),
+            gatewayToGameMetrics = metrics(40),
+        )
+
+        assertEquals(80, candidate?.directMetrics?.medianRttMs)
+        assertEquals("game-a", candidate?.target?.id)
+    }
+
+    @Test
+    fun buildCandidateRejectsMissingDirectTarget() {
+        val targetA = GameRouteTarget("game-a", "a.example.com", 443)
+        val candidate = RouteIntelligence.buildCandidate(
+            node = node,
+            target = targetA,
+            directByTarget = mapOf("game-b" to metrics(35)),
+            phoneToGatewayMetrics = metrics(20),
+            gatewayToGameMetrics = metrics(40),
+        )
+
+        assertEquals(null, candidate)
+    }
+
+    @Test
     fun lowPingRequiresMeaningfulGain() {
         val direct = metrics(80)
         val boosted = metrics(68)
