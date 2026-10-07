@@ -3,6 +3,9 @@ package com.boostlab.app.network
 data class GatewayNode(
     val id: String,
     val region: String,
+    val countryCode: String? = null,
+    val city: String? = null,
+    val displayName: String? = null,
     val host: String,
     val udpPort: Int,
     val routeApiUrl: String? = null,
