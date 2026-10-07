@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.boostlab.app.auth.DeviceAuthStore
 import com.boostlab.app.data.BoostHistoryStore
 import com.boostlab.app.data.DiagnosticLogStore
 import com.boostlab.app.data.EventStore
@@ -27,6 +28,7 @@ import com.boostlab.app.model.SquadChatMessage
 import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.TcpRouteProbe
 import com.boostlab.app.network.RouteIntelligence
+import com.boostlab.app.network.GatewayProvisionClient
 import com.boostlab.app.network.GatewayRouteQualityClient
 import com.boostlab.app.network.GatewayStatusClient
 import com.boostlab.app.network.AutoRouteSelection
@@ -75,7 +77,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val gatewayStatusClient = GatewayStatusClient()
     private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
+    private val gatewayProvisionClient = GatewayProvisionClient()
     private val squadApi = SquadApiClient()
+    private val deviceAuthStore = DeviceAuthStore()
     private val identityStore = ClientIdentityStore(appContext)
     private val tunnelController = WireGuardTunnelController(appContext)
     private val gameBoostEngine = GameBoostEngine(appContext)
@@ -92,6 +96,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val pendingIncomingVoiceIce = mutableListOf<Pair<String, String>>()
     private var trafficBaselineRx = 0L
     private var trafficBaselineTx = 0L
+    private var deviceAccessToken: String? = null
+    private var deviceAccessTokenExpiresAtEpochMs = 0L
+    private var authenticatedDeviceId: String? = null
 
     private val _state = MutableStateFlow(BoostState())
     val state: StateFlow<BoostState> = _state.asStateFlow()
@@ -1719,6 +1726,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         _state.value = snapshot.copy(
             isTunnelConnecting = true,
+            isPeerProvisioning = false,
+            peerProvisionError = null,
             tunnelError = null,
             routeHealth = "CONNECTING",
             routeProbeFailures = 0,
@@ -1727,12 +1736,51 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 val identity = identityStore.loadOrCreate()
+                var tunnelAddress = snapshot.tunnelAddress
+
+                if (
+                    !snapshot.selectedGatewayId.isNullOrBlank() &&
+                    snapshot.controlPlaneUrl.startsWith("https://")
+                ) {
+                    _state.value = _state.value.copy(
+                        isPeerProvisioning = true,
+                        peerProvisionError = null,
+                        serverLabel = "Регистрируем устройство на Gateway…",
+                    )
+
+                    runCatching {
+                        provisionPeerForSelectedGateway(
+                            snapshot = snapshot,
+                            wireGuardPublicKey = identity.publicKeyBase64,
+                        )
+                    }.onSuccess { registration ->
+                        tunnelAddress = registration
+                        _state.value = _state.value.copy(
+                            isPeerProvisioning = false,
+                            peerProvisionError = null,
+                            tunnelAddress = registration,
+                            serverLabel = "Устройство зарегистрировано · подключаем WireGuard…",
+                        )
+                        persistProfile()
+                    }.onFailure { error ->
+                        _state.value = _state.value.copy(
+                            isPeerProvisioning = false,
+                            peerProvisionError =
+                                error.message ?: "Автоматическая регистрация peer недоступна",
+                            serverLabel = "Peer auto-registration недоступен · используем сохранённый адрес",
+                        )
+                        debugLog(
+                            "Peer provisioning fallback: ${error::class.java.simpleName}",
+                        )
+                    }
+                }
+
                 val profile = TunnelProfile(
                     privateKey = identity.privateKeyBase64,
                     serverPublicKey = snapshot.wireGuardServerPublicKey,
                     endpointHost = snapshot.gatewayHost,
                     endpointPort = snapshot.wireGuardPort,
-                    addressCidr = snapshot.tunnelAddress,
+                    addressCidr = tunnelAddress,
                     dnsServer = activeDnsValue(snapshot),
                     selectedPackage = selectedApp.packageName,
                 )
@@ -2385,6 +2433,67 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { appContext.startActivity(chooser) }
     }
 
+    private suspend fun ensureDeviceSession(baseUrl: String): Pair<String, String> {
+        val now = System.currentTimeMillis()
+        val cachedToken = deviceAccessToken
+        val cachedDeviceId = authenticatedDeviceId
+        if (
+            !cachedToken.isNullOrBlank() &&
+            !cachedDeviceId.isNullOrBlank() &&
+            deviceAccessTokenExpiresAtEpochMs - now > DEVICE_SESSION_REFRESH_MARGIN_MS
+        ) {
+            return cachedDeviceId to cachedToken
+        }
+
+        val publicKey = deviceAuthStore.publicKeyBase64()
+        val challenge = controlPlane.requestDeviceChallenge(baseUrl, publicKey)
+        val signature = deviceAuthStore.sign(challenge.message)
+        val session = controlPlane.exchangeDeviceSession(
+            baseUrl = baseUrl,
+            challengeId = challenge.challengeId,
+            signatureBase64 = signature,
+        )
+
+        authenticatedDeviceId = session.deviceId
+        deviceAccessToken = session.accessToken
+        deviceAccessTokenExpiresAtEpochMs = session.expiresAtEpochMs
+        _state.value = _state.value.copy(
+            deviceAuthId = session.deviceId,
+        )
+        return session.deviceId to session.accessToken
+    }
+
+    private suspend fun provisionPeerForSelectedGateway(
+        snapshot: BoostState,
+        wireGuardPublicKey: String,
+    ): String {
+        val nodeId = snapshot.selectedGatewayId
+            ?.takeIf { it.isNotBlank() }
+            ?: error("Gateway node id is unavailable")
+        val (deviceId, accessToken) = ensureDeviceSession(snapshot.controlPlaneUrl)
+        val ticket = controlPlane.requestGatewayProvisionTicket(
+            baseUrl = snapshot.controlPlaneUrl,
+            nodeId = nodeId,
+            accessToken = accessToken,
+            wireGuardPublicKey = wireGuardPublicKey,
+        )
+        require(ticket.deviceId == deviceId) {
+            "Provisioning device identity mismatch"
+        }
+
+        val registration = gatewayProvisionClient.registerPeer(
+            gatewayUrl = ticket.gatewayUrl,
+            ticket = ticket.ticket,
+        )
+        require(registration.deviceId == deviceId) {
+            "Gateway returned another device identity"
+        }
+        require(registration.tunnelAddress.endsWith("/32")) {
+            "Gateway returned invalid tunnel address"
+        }
+        return registration.tunnelAddress
+    }
+
     private fun persistProfile() {
         val snapshot = _state.value
         profileStore.save(
@@ -2433,5 +2542,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_ROUTE_DECISION_AGE_MS = 2L * 60L * 1000L
         private const val ROUTE_REGRESSION_MS = 10
         private const val MAX_DIRECT_WIN_CYCLES = 3
+        private const val DEVICE_SESSION_REFRESH_MARGIN_MS = 30_000L
     }
 }
