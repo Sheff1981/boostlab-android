@@ -88,9 +88,11 @@ class ControlPlaneClient {
         val body = JSONObject()
             .put("wireguard_public_key", wireGuardPublicKey.trim())
             .toString()
-        val connection = openJsonPost("$normalized/v1/provision/$encodedNode", body).apply {
-            setRequestProperty("Authorization", "Bearer ${accessToken.trim()}")
-        }
+        val connection = openJsonPost(
+            "$normalized/v1/provision/$encodedNode",
+            body,
+            bearerToken = accessToken,
+        )
         try {
             require(connection.responseCode == HttpURLConnection.HTTP_OK) {
                 "Gateway provisioning ticket HTTP ${connection.responseCode}"
@@ -250,7 +252,11 @@ class ControlPlaneClient {
         }
     }
 
-    private fun openJsonPost(url: String, body: String): HttpURLConnection {
+    private fun openJsonPost(
+        url: String,
+        body: String,
+        bearerToken: String? = null,
+    ): HttpURLConnection {
         return (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 4_000
@@ -259,6 +265,10 @@ class ControlPlaneClient {
             doOutput = true
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Content-Type", "application/json")
+            bearerToken
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { setRequestProperty("Authorization", "Bearer $it") }
             outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         }
     }
