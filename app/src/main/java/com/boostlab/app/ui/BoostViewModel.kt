@@ -1114,6 +1114,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     metrics.received > 0 && routeScore(metrics, snapshot.boostMode).isFinite()
                 }
 
+                val directByTarget = directMeasurements.associate { (target, metrics) ->
+                    target.id to metrics
+                }
                 val bestDirect = directMeasurements.minByOrNull { (_, metrics) ->
                     routeScore(metrics, snapshot.boostMode)
                 }
@@ -1128,16 +1131,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                val directMetrics = bestDirect.second
-                val directScore = routeScore(directMetrics, snapshot.boostMode)
-
                 val candidates = coroutineScope {
                     eligibleAccess.flatMap { access ->
                         val routeApiUrl = access.node.routeApiUrl
                         if (routeApiUrl.isNullOrBlank()) {
                             emptyList()
                         } else {
-                            targets.map { target ->
+                            targets.mapNotNull { target ->
+                                val directMetrics = directByTarget[target.id] ?: return@mapNotNull null
                                 async {
                                     runCatching {
                                         val remote = gatewayRouteQuality.fetch(
@@ -1154,8 +1155,18 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                             access.metrics,
                                             remote.metrics,
                                         )
-                                        val boostedScore = routeScore(combined, snapshot.boostMode)
-                                        if (!boostedScore.isFinite()) {
+                                        val directScore = routeScore(
+                                            directMetrics,
+                                            snapshot.boostMode,
+                                        )
+                                        val boostedScore = routeScore(
+                                            combined,
+                                            snapshot.boostMode,
+                                        )
+                                        if (
+                                            !directScore.isFinite() ||
+                                            !boostedScore.isFinite()
+                                        ) {
                                             return@runCatching null
                                         }
                                         IntelligentRouteCandidate(
@@ -1181,7 +1192,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     return@runCatching AutoRouteSelection(
                         gateway = best,
                         recommendation = "GATEWAY_ONLY",
-                        directMetrics = directMetrics,
+                        directMetrics = bestDirect.second,
                         candidatesTested = eligibleAccess.size,
                     )
                 }
@@ -1226,7 +1237,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     },
                     recommendation = if (useBoost) "BOOST" else "DIRECT",
                     target = chosenCandidate.target,
-                    directMetrics = directMetrics,
+                    directMetrics = chosenCandidate.directMetrics,
                     boostedMetrics = chosenCandidate.boostedMetrics,
                     gainMs = chosenCandidate.gainMs,
                     candidatesTested = candidates.size,
