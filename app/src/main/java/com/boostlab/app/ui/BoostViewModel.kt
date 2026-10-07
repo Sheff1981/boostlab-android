@@ -1214,6 +1214,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         _state.value = _state.value.copy(
             isAutoSelecting = true,
             networkTransport = selectionTransport,
+            externalVpnDetected = false,
             discoveredNodes = 0,
             routeCandidatesTested = 0,
             probeError = null,
