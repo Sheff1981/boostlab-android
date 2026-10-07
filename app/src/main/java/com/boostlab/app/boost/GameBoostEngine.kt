@@ -18,6 +18,7 @@ data class GameReadinessSnapshot(
     val thermalStatus: Int?,
     val networkValidated: Boolean?,
     val networkTransport: String?,
+    val networkMtu: Int? = null,
     val vpnActive: Boolean = false,
 )
 
@@ -40,8 +41,18 @@ class GameBoostEngine(
         }
 
         val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
-        val networkCapabilities = connectivityManager?.let { manager ->
-            manager.getNetworkCapabilities(manager.activeNetwork)
+        val activeNetwork = connectivityManager?.activeNetwork
+        val networkCapabilities = if (connectivityManager != null && activeNetwork != null) {
+            connectivityManager.getNetworkCapabilities(activeNetwork)
+        } else {
+            null
+        }
+        val networkMtu = if (connectivityManager != null && activeNetwork != null) {
+            connectivityManager.getLinkProperties(activeNetwork)
+                ?.mtu
+                ?.takeIf { it in 1280..9000 }
+        } else {
+            null
         }
 
         val availableMemoryMb = memoryInfo.availMem / BYTES_PER_MEGABYTE
@@ -66,6 +77,7 @@ class GameBoostEngine(
                 NetworkCapabilities.NET_CAPABILITY_VALIDATED,
             ),
             networkTransport = networkTransportLabel(networkCapabilities),
+            networkMtu = networkMtu,
             vpnActive = networkCapabilities?.hasTransport(
                 NetworkCapabilities.TRANSPORT_VPN,
             ) == true,
