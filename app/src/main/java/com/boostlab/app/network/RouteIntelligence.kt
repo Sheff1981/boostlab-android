@@ -32,6 +32,32 @@ data class AutoRouteSelection(
 )
 
 object RouteIntelligence {
+    fun buildCandidate(
+        node: GatewayNode,
+        target: GameRouteTarget,
+        directByTarget: Map<String, RouteMetrics>,
+        phoneToGatewayMetrics: RouteMetrics,
+        gatewayToGameMetrics: RouteMetrics,
+        scorer: (RouteMetrics) -> Double = RouteScorer::score,
+    ): IntelligentRouteCandidate? {
+        val directMetrics = directByTarget[target.id] ?: return null
+        val boostedMetrics = combine(phoneToGatewayMetrics, gatewayToGameMetrics)
+        val directScore = scorer(directMetrics)
+        val boostedScore = scorer(boostedMetrics)
+        if (!directScore.isFinite() || !boostedScore.isFinite()) return null
+
+        return IntelligentRouteCandidate(
+            node = node,
+            target = target,
+            directMetrics = directMetrics,
+            phoneToGatewayMetrics = phoneToGatewayMetrics,
+            gatewayToGameMetrics = gatewayToGameMetrics,
+            boostedMetrics = boostedMetrics,
+            directScore = directScore,
+            boostedScore = boostedScore,
+        )
+    }
+
     fun combine(first: RouteMetrics, second: RouteMetrics): RouteMetrics {
         val median = sumNullable(first.medianRttMs, second.medianRttMs)
         val p95 = sumNullable(
