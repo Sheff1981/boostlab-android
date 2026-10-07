@@ -43,6 +43,7 @@ import com.boostlab.app.network.SquadApiClient
 import com.boostlab.app.network.UdpRouteProbe
 import com.boostlab.app.notifications.AppNotificationCenter
 import com.boostlab.app.tunnel.ClientIdentityStore
+import com.boostlab.app.tunnel.TunnelMtuPolicy
 import com.boostlab.app.tunnel.TunnelProfile
 import com.boostlab.app.tunnel.WireGuardTunnelController
 import com.boostlab.app.voice.VoiceIceServer
@@ -1034,6 +1035,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     thermalStatus = readiness.thermalStatus,
                     networkValidated = readiness.networkValidated,
                     networkTransport = readiness.networkTransport,
+                    networkMtu = readiness.networkMtu,
+                    tunnelMtu = TunnelMtuPolicy.choose(
+                        linkMtu = readiness.networkMtu,
+                        networkTransport = readiness.networkTransport,
+                    ),
                     externalVpnDetected = readiness.vpnActive && !_state.value.isBoosting,
                 )
             }
@@ -1680,16 +1686,16 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
-        if (snapshot.autoSelectBestNode) {
-            val readiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
-            if (readiness?.vpnActive == true) {
-                _state.value = snapshot.copy(
-                    externalVpnDetected = true,
-                    tunnelError = "Отключи другой VPN перед запуском BOOSTLAB",
-                )
-                return
-            }
+        val connectReadiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
+        if (connectReadiness?.vpnActive == true) {
+            _state.value = snapshot.copy(
+                externalVpnDetected = true,
+                tunnelError = "Отключи другой VPN перед запуском BOOSTLAB",
+            )
+            return
+        }
 
+        if (snapshot.autoSelectBestNode) {
             val decidedAt = snapshot.routeDecisionAtEpochMs
             if (
                 decidedAt == null ||
@@ -1703,7 +1709,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 return
             }
 
-            val currentTransport = readiness?.networkTransport
+            val currentTransport = connectReadiness?.networkTransport
             val routeTransport = snapshot.routeDecisionTransport
             if (
                 currentTransport != null &&
@@ -1734,6 +1740,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
 
+        val selectedTunnelMtu = TunnelMtuPolicy.choose(
+            linkMtu = connectReadiness?.networkMtu ?: snapshot.networkMtu,
+            networkTransport = connectReadiness?.networkTransport ?: snapshot.networkTransport,
+        )
+
         _state.value = snapshot.copy(
             isTunnelConnecting = true,
             isPeerProvisioning = false,
@@ -1741,6 +1752,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             tunnelError = null,
             routeHealth = "CONNECTING",
             routeProbeFailures = 0,
+            networkMtu = connectReadiness?.networkMtu ?: snapshot.networkMtu,
+            tunnelMtu = selectedTunnelMtu,
         )
 
         viewModelScope.launch {
@@ -1793,6 +1806,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     addressCidr = tunnelAddress,
                     dnsServer = activeDnsValue(snapshot),
                     selectedPackage = selectedApp.packageName,
+                    mtu = selectedTunnelMtu,
                 )
                 tunnelController.connect(profile)
             }.onSuccess { tunnelState ->
