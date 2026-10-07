@@ -1532,6 +1532,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     probeError = null,
                 )
                 persistProfile()
+                _state.value.selectedApp?.packageName?.let { selectedPackage ->
+                    routeMemoryStore.save(
+                        packageName = selectedPackage,
+                        boostMode = _state.value.boostMode,
+                        networkTransport = _state.value.networkTransport,
+                        gatewayId = gateway.node.id,
+                        gainMs = selection.gainMs,
+                    )
+                }
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     isAutoSelecting = false,
