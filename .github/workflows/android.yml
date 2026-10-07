@@ -36,6 +36,8 @@ jobs:
           gradle-version: '9.6.0'
       - name: Prepare build version
         run: |
+          echo "BOOSTLAB_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          echo "BOOSTLAB_VERSION_NAME=0.10.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
       - name: Build and test
         run: gradle :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
@@ -66,5 +68,20 @@ jobs:
         with:
           name: boostlab-android-debug-ephemeral-signature
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Collect APK signing tools
+        run: |
+          mkdir -p "$RUNNER_TEMP/boostlab-signing-tools/lib"
+          cp "$ANDROID_HOME/build-tools/36.0.0/apksigner" "$RUNNER_TEMP/boostlab-signing-tools/"
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" "$RUNNER_TEMP/boostlab-signing-tools/lib/"
+          chmod +x "$RUNNER_TEMP/boostlab-signing-tools/apksigner"
+
+      - name: Upload APK signing tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: boostlab-apksigner-linux
+          path: ${{ runner.temp }}/boostlab-signing-tools/
           if-no-files-found: error
           retention-days: 7
