@@ -1020,7 +1020,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             current.isTunnelConnecting
         ) return
 
-        _state.value = current.copy(
+        invalidateRouteIntelligence()
+        _state.value = _state.value.copy(
             isAutoSelecting = true,
             discoveredNodes = 0,
             routeCandidatesTested = 0,
@@ -1326,7 +1327,22 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun probeGateway() {
         val current = _state.value
-        if (current.gatewayHost.isBlank() || current.isProbing) return
+        if (
+            current.gatewayHost.isBlank() ||
+            current.isProbing ||
+            current.isBoosting ||
+            current.isTunnelConnecting ||
+            current.isAutoSelecting
+        ) return
+        if (
+            current.autoSelectBestNode &&
+            current.routeRecommendation != "GATEWAY_ONLY"
+        ) {
+            _state.value = current.copy(
+                probeError = "Для Auto-режима используй «Лучший маршрут»",
+            )
+            return
+        }
 
         _state.value = current.copy(
             isProbing = true,
