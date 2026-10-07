@@ -1,5 +1,7 @@
 package com.boostlab.app.model
 
+import com.boostlab.app.network.GatewayNode
+
 data class BoostState(
     val selectedApp: BoostApp? = null,
     val showAdvancedSettings: Boolean = false,
@@ -71,6 +73,12 @@ data class BoostState(
     val lanGatewayCount: Int = 0,
     val discoveredNodes: Int = 0,
     val routeCandidatesTested: Int = 0,
+    val routeSelectorVisible: Boolean = false,
+    val gatewayDirectoryLoading: Boolean = false,
+    val gatewayDirectoryError: String? = null,
+    val gatewayDirectory: List<GatewayNode> = emptyList(),
+    val gatewayDirectoryPingMs: Map<String, Int> = emptyMap(),
+    val gatewayDirectoryLossPct: Map<String, Double> = emptyMap(),
     val routeRecommendation: String = "UNKNOWN",
     val routeTargetId: String? = null,
     val routeTargetHost: String? = null,
