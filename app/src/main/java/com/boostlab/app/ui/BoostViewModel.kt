@@ -26,7 +26,6 @@ import com.boostlab.app.model.SquadChatMessage
 import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.TcpRouteProbe
 import com.boostlab.app.network.RouteIntelligence
-import com.boostlab.app.network.IntelligentRouteCandidate
 import com.boostlab.app.network.GatewayRouteQualityClient
 import com.boostlab.app.network.AutoRouteSelection
 import com.boostlab.app.network.GatewayMeasurement
@@ -1138,7 +1137,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             emptyList()
                         } else {
                             targets.mapNotNull { target ->
-                                val directMetrics = directByTarget[target.id] ?: return@mapNotNull null
+                                if (directByTarget[target.id] == null) {
+                                    return@mapNotNull null
+                                }
                                 async {
                                     runCatching {
                                         val remote = gatewayRouteQuality.fetch(
@@ -1151,33 +1152,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                         ) {
                                             return@runCatching null
                                         }
-                                        val combined = RouteIntelligence.combine(
-                                            access.metrics,
-                                            remote.metrics,
-                                        )
-                                        val directScore = routeScore(
-                                            directMetrics,
-                                            snapshot.boostMode,
-                                        )
-                                        val boostedScore = routeScore(
-                                            combined,
-                                            snapshot.boostMode,
-                                        )
-                                        if (
-                                            !directScore.isFinite() ||
-                                            !boostedScore.isFinite()
-                                        ) {
-                                            return@runCatching null
-                                        }
-                                        IntelligentRouteCandidate(
+                                        RouteIntelligence.buildCandidate(
                                             node = access.node,
                                             target = target,
-                                            directMetrics = directMetrics,
+                                            directByTarget = directByTarget,
                                             phoneToGatewayMetrics = access.metrics,
                                             gatewayToGameMetrics = remote.metrics,
-                                            boostedMetrics = combined,
-                                            directScore = directScore,
-                                            boostedScore = boostedScore,
+                                            scorer = { metrics ->
+                                                routeScore(metrics, snapshot.boostMode)
+                                            },
                                         )
                                     }.getOrNull()
                                 }
