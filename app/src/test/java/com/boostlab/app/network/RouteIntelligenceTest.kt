@@ -105,6 +105,68 @@ class RouteIntelligenceTest {
     }
 
     @Test
+    fun lowPingRejectsLossyRoute() {
+        val direct = metrics(median = 80, p95 = 90, loss = 0.0)
+        val boosted = metrics(median = 60, p95 = 80, loss = 5.0)
+        val candidate = IntelligentRouteCandidate(
+            node = node,
+            target = target,
+            directMetrics = direct,
+            phoneToGatewayMetrics = metrics(20),
+            gatewayToGameMetrics = metrics(40),
+            boostedMetrics = boosted,
+            directScore = RouteScorer.score(direct),
+            boostedScore = RouteScorer.score(boosted),
+        )
+
+        assertFalse(RouteIntelligence.shouldUseBoost(candidate, "LOW_PING"))
+    }
+
+    @Test
+    fun lowPingRejectsSevereP95Spikes() {
+        val direct = metrics(median = 80, p95 = 90, loss = 0.0)
+        val boosted = metrics(median = 60, p95 = 140, loss = 0.0)
+        val candidate = IntelligentRouteCandidate(
+            node = node,
+            target = target,
+            directMetrics = direct,
+            phoneToGatewayMetrics = metrics(20),
+            gatewayToGameMetrics = metrics(40),
+            boostedMetrics = boosted,
+            directScore = RouteScorer.score(direct),
+            boostedScore = RouteScorer.score(boosted),
+        )
+
+        assertFalse(RouteIntelligence.shouldUseBoost(candidate, "LOW_PING"))
+    }
+
+    @Test
+    fun combinedReliabilityMatchesCombinedLoss() {
+        val combined = RouteIntelligence.combine(
+            RouteMetrics(
+                medianRttMs = 10,
+                jitterMs = 1,
+                packetLossPct = 14.285714,
+                sent = 7,
+                received = 6,
+                p95RttMs = 12,
+            ),
+            RouteMetrics(
+                medianRttMs = 20,
+                jitterMs = 2,
+                packetLossPct = 14.285714,
+                sent = 7,
+                received = 6,
+                p95RttMs = 24,
+            ),
+        )
+
+        assertEquals(7, combined.sent)
+        assertEquals(5, combined.received)
+        assertEquals(26.53, combined.packetLossPct, 0.05)
+    }
+
+    @Test
     fun lowPingKeepsDirectForTinyGain() {
         val direct = metrics(50)
         val boosted = metrics(47)
