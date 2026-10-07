@@ -71,7 +71,11 @@ class GameBoostEngine(
         } else {
             activeCapabilities
         }
-        val networkMtu = if (connectivityManager != null && physicalNetwork != null) {
+        val networkMtu = if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            connectivityManager != null &&
+            physicalNetwork != null
+        ) {
             connectivityManager.getLinkProperties(physicalNetwork)
                 ?.mtu
                 ?.takeIf { it in 1280..9000 }
