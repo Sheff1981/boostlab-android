@@ -31,10 +31,12 @@ class ControlPlaneClient {
     suspend fun requestDeviceChallenge(
         baseUrl: String,
         publicKeyBase64: String,
+        enrollmentCode: String = "",
     ): DeviceAuthChallenge = withContext(Dispatchers.IO) {
         val normalized = normalizeBaseUrl(baseUrl)
         val body = JSONObject()
             .put("public_key", publicKeyBase64.trim())
+            .put("enrollment_code", enrollmentCode.trim())
             .toString()
         val connection = openJsonPost("$normalized/v1/auth/challenge", body)
         try {
