@@ -5,6 +5,10 @@ val defaultWireGuardPublicKey = providers.environmentVariable("BOOSTLAB_DEFAULT_
 val defaultWireGuardPort = providers.environmentVariable("BOOSTLAB_DEFAULT_WG_PORT").orElse("51820").get()
 val defaultTunnelAddress = providers.environmentVariable("BOOSTLAB_DEFAULT_TUNNEL_ADDRESS").orElse("10.77.0.2/32").get()
 val defaultDnsServer = providers.environmentVariable("BOOSTLAB_DEFAULT_DNS_SERVER").orElse("1.1.1.1").get()
+val ciVersionCode = providers.environmentVariable("BOOSTLAB_VERSION_CODE").orNull?.toIntOrNull()
+val ciVersionName = providers.environmentVariable("BOOSTLAB_VERSION_NAME").orNull
+val signingStorePath = providers.environmentVariable("BOOSTLAB_SIGNING_STORE_FILE").orNull
+val signingPassword = providers.environmentVariable("BOOSTLAB_SIGNING_PASSWORD").orNull
 
 plugins {
     id("com.android.application")
@@ -19,8 +23,8 @@ android {
         applicationId = "com.boostlab.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
-        versionName = "0.10.0-gateway-picker"
+        versionCode = ciVersionCode ?: 10
+        versionName = ciVersionName ?: "0.10.0-gateway-picker"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -31,6 +35,25 @@ android {
         buildConfigField("int", "BOOSTLAB_DEFAULT_WG_PORT", defaultWireGuardPort)
         buildConfigField("String", "BOOSTLAB_DEFAULT_TUNNEL_ADDRESS", "\"$defaultTunnelAddress\"")
         buildConfigField("String", "BOOSTLAB_DEFAULT_DNS_SERVER", "\"$defaultDnsServer\"")
+    }
+
+    signingConfigs {
+        if (!signingStorePath.isNullOrBlank() && !signingPassword.isNullOrBlank()) {
+            create("stable") {
+                storeFile = file(signingStorePath)
+                storePassword = signingPassword
+                keyAlias = "boostlab"
+                keyPassword = signingPassword
+                storeType = "PKCS12"
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            signingConfigs.findByName("stable")?.let { signingConfig = it }
+        }
     }
 
     compileOptions {
