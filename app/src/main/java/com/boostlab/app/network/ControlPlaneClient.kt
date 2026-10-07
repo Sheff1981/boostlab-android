@@ -8,6 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.time.Instant
 
 data class DeviceAuthChallenge(
     val challengeId: String,
@@ -17,6 +18,7 @@ data class DeviceAuthChallenge(
 data class DeviceAuthSession(
     val deviceId: String,
     val accessToken: String,
+    val expiresAtEpochMs: Long,
 )
 
 data class GatewayProvisionTicket(
@@ -68,6 +70,7 @@ class ControlPlaneClient {
             DeviceAuthSession(
                 deviceId = json.getString("device_id"),
                 accessToken = json.getString("access_token"),
+                expiresAtEpochMs = Instant.parse(json.getString("expires_at")).toEpochMilli(),
             )
         } finally {
             connection.disconnect()
