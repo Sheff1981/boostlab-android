@@ -34,6 +34,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
+      - name: Prepare build version
+        run: |
+
       - name: Build and test
         run: gradle :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 
