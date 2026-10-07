@@ -1182,14 +1182,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 if (candidates.isEmpty()) {
-                    val best = eligibleAccess.minByOrNull { it.score }
-                        ?: error("Нет доступного сервера, готового к бусту")
-                    return@runCatching AutoRouteSelection(
-                        gateway = best,
-                        recommendation = "GATEWAY_ONLY",
-                        directMetrics = bestDirect.second,
-                        candidatesTested = eligibleAccess.size,
-                    )
+                    error("Не удалось проверить полный маршрут до игры")
                 }
 
                 val bestPerNode = candidates
