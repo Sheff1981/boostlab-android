@@ -28,7 +28,9 @@ import com.boostlab.app.network.ControlPlaneClient
 import com.boostlab.app.network.TcpRouteProbe
 import com.boostlab.app.network.RouteIntelligence
 import com.boostlab.app.network.GatewayRouteQualityClient
+import com.boostlab.app.network.GatewayStatusClient
 import com.boostlab.app.network.AutoRouteSelection
+import com.boostlab.app.network.GatewayCapacityPolicy
 import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
 import com.boostlab.app.network.LanGatewayDiscovery
@@ -70,6 +72,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val routeProbe = UdpRouteProbe()
     private val directRouteProbe = TcpRouteProbe()
     private val gatewayRouteQuality = GatewayRouteQualityClient()
+    private val gatewayStatusClient = GatewayStatusClient()
     private val lanDiscovery = LanGatewayDiscovery()
     private val controlPlane = ControlPlaneClient()
     private val squadApi = SquadApiClient()
@@ -1289,10 +1292,17 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                     port = node.udpPort,
                                     samples = AUTO_FINAL_SAMPLES,
                                 )
+                                val runtimeStatus = node.routeApiUrl?.let { routeApiUrl ->
+                                    runCatching {
+                                        gatewayStatusClient.fetch(routeApiUrl)
+                                    }.getOrNull()
+                                }
+                                val capacityPenalty = GatewayCapacityPolicy.penalty(runtimeStatus)
                                 GatewayMeasurement(
                                     node = node,
                                     metrics = metrics,
-                                    score = routeScore(metrics, snapshot.boostMode),
+                                    score = routeScore(metrics, snapshot.boostMode) + capacityPenalty,
+                                    capacityPenalty = capacityPenalty,
                                 )
                             }.getOrNull()
                         }
@@ -1403,6 +1413,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                             directByTarget = directByTarget,
                                             phoneToGatewayMetrics = access.metrics,
                                             gatewayToGameMetrics = remote.metrics,
+                                            capacityPenalty = access.capacityPenalty,
                                             scorer = { metrics ->
                                                 routeScore(metrics, snapshot.boostMode)
                                             },
@@ -1431,12 +1442,20 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             node = it.node,
                             metrics = it.boostedMetrics,
                             score = it.boostedScore,
+                            capacityPenalty = accessPenaltyForNode(
+                                eligibleAccess,
+                                it.node.id,
+                            ),
                         )
                     },
                     bestCandidate = GatewayMeasurement(
                         node = bestCandidate.node,
                         metrics = bestCandidate.boostedMetrics,
                         score = bestCandidate.boostedScore,
+                        capacityPenalty = accessPenaltyForNode(
+                            eligibleAccess,
+                            bestCandidate.node.id,
+                        ),
                     ),
                 )
 
@@ -1452,6 +1471,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             node = chosenCandidate.node,
                             metrics = chosenCandidate.boostedMetrics,
                             score = chosenCandidate.boostedScore,
+                            capacityPenalty = accessPenaltyForNode(
+                                eligibleAccess,
+                                chosenCandidate.node.id,
+                            ),
                         )
                     } else {
                         null
@@ -2283,6 +2306,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             selectedRouteApiUrl = if (clearSelectedGateway) null else snapshot.selectedRouteApiUrl,
             tunnelError = null,
         )
+    }
+
+    private fun accessPenaltyForNode(
+        measurements: List<GatewayMeasurement>,
+        nodeId: String,
+    ): Double {
+        return measurements.firstOrNull { it.node.id == nodeId }?.capacityPenalty ?: 0.0
     }
 
     private fun activeDnsValue(snapshot: BoostState): String {
