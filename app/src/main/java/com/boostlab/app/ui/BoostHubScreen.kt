@@ -750,6 +750,31 @@ private fun BoostPage(
                     Text("Сервер зафиксирован до отключения Network Boost.", color = HubMint, fontSize = 11.sp)
                 }
                 state.tunnelError?.let { Text(it, color = HubError, fontSize = 11.sp) }
+                if (state.isPeerProvisioning) {
+                    Text(
+                        "Регистрируем этот телефон на Gateway…",
+                        color = HubCyan,
+                        fontSize = 11.sp,
+                    )
+                }
+                state.peerProvisionError?.let {
+                    Text(
+                        "Peer provisioning: $it",
+                        color = HubMuted,
+                        fontSize = 10.sp,
+                    )
+                }
+                if (
+                    !state.isPeerProvisioning &&
+                    state.peerProvisionError == null &&
+                    state.deviceAuthId != null
+                ) {
+                    Text(
+                        "Device auth: ${state.deviceAuthId}",
+                        color = HubMint,
+                        fontSize = 10.sp,
+                    )
+                }
             }
         }
         item {
