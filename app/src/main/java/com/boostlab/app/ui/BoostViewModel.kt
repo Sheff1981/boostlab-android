@@ -184,6 +184,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             tunnelError = null,
             routeRecommendation = "UNKNOWN",
             routeDecisionTransport = null,
+            routeDecisionAtEpochMs = null,
             routeTargetId = null,
             routeTargetHost = null,
             routeTargetPort = null,
@@ -1022,6 +1023,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     thermalStatus = readiness.thermalStatus,
                     networkValidated = readiness.networkValidated,
                     networkTransport = readiness.networkTransport,
+                    externalVpnDetected = readiness.vpnActive && !_state.value.isBoosting,
                 )
             }
     }
@@ -1194,9 +1196,16 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             current.isTunnelConnecting
         ) return
 
-        val selectionTransport = runCatching {
-            gameBoostEngine.inspect().networkTransport
-        }.getOrNull() ?: current.networkTransport
+        val readiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
+        if (readiness?.vpnActive == true) {
+            _state.value = current.copy(
+                externalVpnDetected = true,
+                probeError = "Отключи другой VPN перед проверкой маршрута",
+                serverLabel = "Конфликт VPN",
+            )
+            return
+        }
+        val selectionTransport = readiness?.networkTransport ?: current.networkTransport
 
         invalidateRouteIntelligence()
         _state.value = _state.value.copy(
@@ -1467,6 +1476,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         selectedRouteApiUrl = null,
                         routeRecommendation = "DIRECT",
                         routeDecisionTransport = selectionTransport,
+                        routeDecisionAtEpochMs = System.currentTimeMillis(),
                         routeTargetId = selection.target?.id,
                         routeTargetHost = selection.target?.host,
                         routeTargetPort = selection.target?.tcpPort,
@@ -1510,6 +1520,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     selectedRouteApiUrl = gateway.node.routeApiUrl,
                     routeRecommendation = selection.recommendation,
                     routeDecisionTransport = selectionTransport,
+                    routeDecisionAtEpochMs = System.currentTimeMillis(),
                     routeTargetId = selection.target?.id,
                     routeTargetHost = selection.target?.host,
                     routeTargetPort = selection.target?.tcpPort,
@@ -1638,9 +1649,29 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         if (snapshot.autoSelectBestNode) {
-            val currentTransport = runCatching {
-                gameBoostEngine.inspect().networkTransport
-            }.getOrNull()
+            val readiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
+            if (readiness?.vpnActive == true) {
+                _state.value = snapshot.copy(
+                    externalVpnDetected = true,
+                    tunnelError = "Отключи другой VPN перед запуском BOOSTLAB",
+                )
+                return
+            }
+
+            val decidedAt = snapshot.routeDecisionAtEpochMs
+            if (
+                decidedAt == null ||
+                System.currentTimeMillis() - decidedAt !in 0L..MAX_ROUTE_DECISION_AGE_MS
+            ) {
+                invalidateRouteIntelligence()
+                _state.value = _state.value.copy(
+                    tunnelError = "Маршрут устарел — запусти Auto-проверку ещё раз",
+                    serverLabel = "Нужна новая проверка маршрута",
+                )
+                return
+            }
+
+            val currentTransport = readiness?.networkTransport
             val routeTransport = snapshot.routeDecisionTransport
             if (
                 currentTransport != null &&
@@ -2355,5 +2386,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val DIRECT_ROUTE_SAMPLES = 7
         private const val LIVE_DIRECT_ROUTE_SAMPLES = 3
         private const val LIVE_ROUTE_REFRESH_CYCLES = 2
+        private const val MAX_ROUTE_DECISION_AGE_MS = 2L * 60L * 1000L
     }
 }
