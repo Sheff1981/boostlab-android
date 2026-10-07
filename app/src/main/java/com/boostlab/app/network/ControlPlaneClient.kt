@@ -36,6 +36,11 @@ class ControlPlaneClient {
                     val node = GatewayNode(
                         id = item.getString("id"),
                         region = item.getString("region"),
+                        countryCode = item.optString("country_code").trim()
+                            .takeIf { it.length == 2 },
+                        city = item.optString("city").trim().takeIf { it.isNotBlank() },
+                        displayName = item.optString("display_name").trim()
+                            .takeIf { it.isNotBlank() },
                         host = item.getString("host"),
                         udpPort = item.getInt("udp_port"),
                         routeApiUrl = item.optString("route_api_url").takeIf { it.startsWith("https://") },
