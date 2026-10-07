@@ -62,6 +62,9 @@ data class BoostState(
 
     val clientPublicKey: String? = null,
     val identityError: String? = null,
+    val deviceAuthId: String? = null,
+    val isPeerProvisioning: Boolean = false,
+    val peerProvisionError: String? = null,
 
     val wireGuardServerPublicKey: String = "",
     val wireGuardPort: Int = 51820,
