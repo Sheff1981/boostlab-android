@@ -1143,7 +1143,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                     runCatching {
                                         val remote = gatewayRouteQuality.fetch(
                                             routeApiUrl = routeApiUrl,
-                                            targetId = target.id,
+                                            target = target,
                                         )
                                         if (
                                             remote.metrics.received <= 0 ||
@@ -1652,7 +1652,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         cachedGatewayToGame = runCatching {
                             gatewayRouteQuality.fetch(
                                 routeApiUrl = requireNotNull(snapshot.selectedRouteApiUrl),
-                                targetId = requireNotNull(snapshot.routeTargetId),
+                                target = com.boostlab.app.network.GameRouteTarget(
+                                    id = requireNotNull(snapshot.routeTargetId),
+                                    host = requireNotNull(snapshot.routeTargetHost),
+                                    tcpPort = requireNotNull(snapshot.routeTargetPort),
+                                ),
                             ).metrics
                         }.getOrElse { cachedGatewayToGame }
 
