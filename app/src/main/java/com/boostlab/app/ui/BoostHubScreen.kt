@@ -372,8 +372,11 @@ private fun BoostPage(
                                 if (state.confirmStop) confirmDisconnect = true else viewModel.disconnectTunnel()
                             } else onRequestVpnPermission()
                         },
-                        enabled = !state.isTunnelConnecting &&
-                            !(state.routeRecommendation == "DIRECT" && state.autoSelectBestNode),
+                        enabled = !state.isTunnelConnecting && (
+                            state.isBoosting ||
+                                !state.autoSelectBestNode ||
+                                state.routeRecommendation in setOf("BOOST", "GATEWAY_ONLY")
+                            ),
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(
@@ -381,6 +384,7 @@ private fun BoostPage(
                                 state.isTunnelConnecting -> "Подключаем…"
                                 state.isBoosting -> "Отключить"
                                 state.routeRecommendation == "DIRECT" && state.autoSelectBestNode -> "DIRECT лучший"
+                                state.routeRecommendation == "UNKNOWN" && state.autoSelectBestNode -> "Сначала маршрут"
                                 else -> "Включить VPN"
                             },
                         )
