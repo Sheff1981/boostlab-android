@@ -18,6 +18,8 @@ data class BoostState(
     val thermalStatus: Int? = null,
     val networkValidated: Boolean? = null,
     val networkTransport: String? = null,
+    val networkMtu: Int? = null,
+    val tunnelMtu: Int = 1380,
     val externalVpnDetected: Boolean = false,
     val gameLaunchMode: GameLaunchMode = GameLaunchMode.SMART,
     val pinnedPackages: Set<String> = emptySet(),
