@@ -321,9 +321,15 @@ private fun GatewaySection(
     subtitle: String,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    var expanded by rememberSaveable(title) { mutableStateOf(true) }
+
     Panel {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .clickable { expanded = !expanded }
+                .padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -331,9 +337,18 @@ private fun GatewaySection(
                 Text(subtitle, color = HubMuted, fontSize = 10.sp)
             }
             Text("▂▄▆", color = HubMint, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                if (expanded) "⌃" else "⌄",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
-        Spacer(Modifier.height(6.dp))
-        content()
+        if (expanded) {
+            Spacer(Modifier.height(6.dp))
+            content()
+        }
     }
 }
 
