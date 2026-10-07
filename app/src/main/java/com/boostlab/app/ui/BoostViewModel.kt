@@ -183,6 +183,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             gameBoostMessage = "Готов к запуску",
             tunnelError = null,
             routeRecommendation = "UNKNOWN",
+            routeDecisionTransport = null,
             routeTargetId = null,
             routeTargetHost = null,
             routeTargetPort = null,
@@ -1169,7 +1170,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     routeMemoryStore.save(
                         packageName = selectedPackage,
                         boostMode = _state.value.boostMode,
-                        networkTransport = _state.value.networkTransport,
+                        networkTransport = selectionTransport,
                         gatewayId = gateway.node.id,
                         gainMs = selection.gainMs,
                     )
@@ -1193,9 +1194,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             current.isTunnelConnecting
         ) return
 
+        val selectionTransport = runCatching {
+            gameBoostEngine.inspect().networkTransport
+        }.getOrNull() ?: current.networkTransport
+
         invalidateRouteIntelligence()
         _state.value = _state.value.copy(
             isAutoSelecting = true,
+            networkTransport = selectionTransport,
             discoveredNodes = 0,
             routeCandidatesTested = 0,
             probeError = null,
@@ -1224,7 +1230,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     routeMemoryStore.load(
                         packageName = it,
                         boostMode = snapshot.boostMode,
-                        networkTransport = snapshot.networkTransport,
+                        networkTransport = selectionTransport,
                     )?.gatewayId
                 }
 
@@ -1460,6 +1466,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         selectedGatewayRegion = null,
                         selectedRouteApiUrl = null,
                         routeRecommendation = "DIRECT",
+                        routeDecisionTransport = selectionTransport,
                         routeTargetId = selection.target?.id,
                         routeTargetHost = selection.target?.host,
                         routeTargetPort = selection.target?.tcpPort,
@@ -1502,6 +1509,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     selectedGatewayRegion = gateway.node.region,
                     selectedRouteApiUrl = gateway.node.routeApiUrl,
                     routeRecommendation = selection.recommendation,
+                    routeDecisionTransport = selectionTransport,
                     routeTargetId = selection.target?.id,
                     routeTargetHost = selection.target?.host,
                     routeTargetPort = selection.target?.tcpPort,
@@ -1627,6 +1635,26 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 tunnelError = "Сначала нажми «Лучший маршрут»",
             )
             return
+        }
+
+        if (snapshot.autoSelectBestNode) {
+            val currentTransport = runCatching {
+                gameBoostEngine.inspect().networkTransport
+            }.getOrNull()
+            val routeTransport = snapshot.routeDecisionTransport
+            if (
+                currentTransport != null &&
+                routeTransport != null &&
+                currentTransport != routeTransport
+            ) {
+                invalidateRouteIntelligence()
+                _state.value = _state.value.copy(
+                    networkTransport = currentTransport,
+                    tunnelError = "Сеть изменилась: $routeTransport → $currentTransport. Пересчитай маршрут.",
+                    serverLabel = "Нужна новая проверка маршрута",
+                )
+                return
+            }
         }
         if (snapshot.routeRecommendation == "DIRECT" && snapshot.autoSelectBestNode) {
             _state.value = snapshot.copy(
