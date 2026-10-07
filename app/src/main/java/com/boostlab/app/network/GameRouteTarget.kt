@@ -8,5 +8,7 @@ data class GameRouteTarget(
 
 data class GatewayRouteMetrics(
     val targetId: String,
+    val targetHost: String,
+    val tcpPort: Int,
     val metrics: RouteMetrics,
 )
