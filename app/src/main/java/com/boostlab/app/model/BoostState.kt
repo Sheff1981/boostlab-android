@@ -80,6 +80,7 @@ data class BoostState(
     val gatewayDirectoryPingMs: Map<String, Int> = emptyMap(),
     val gatewayDirectoryLossPct: Map<String, Double> = emptyMap(),
     val routeRecommendation: String = "UNKNOWN",
+    val routeDecisionTransport: String? = null,
     val routeTargetId: String? = null,
     val routeTargetHost: String? = null,
     val routeTargetPort: Int? = null,
