@@ -18,6 +18,7 @@ data class GameReadinessSnapshot(
     val thermalStatus: Int?,
     val networkValidated: Boolean?,
     val networkTransport: String?,
+    val vpnActive: Boolean,
 )
 
 class GameBoostEngine(
@@ -65,6 +66,9 @@ class GameBoostEngine(
                 NetworkCapabilities.NET_CAPABILITY_VALIDATED,
             ),
             networkTransport = networkTransportLabel(networkCapabilities),
+            vpnActive = networkCapabilities?.hasTransport(
+                NetworkCapabilities.TRANSPORT_VPN,
+            ) == true,
         )
     }
 
