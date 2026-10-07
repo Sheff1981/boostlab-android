@@ -71,12 +71,22 @@ object RouteIntelligence {
                     (1.0 - second.packetLossPct.coerceIn(0.0, 100.0) / 100.0))
             )
 
+        val combinedLoss = loss.coerceIn(0.0, 100.0)
+        val sent = minOf(first.sent, second.sent)
+        val received = if (sent == 0) {
+            0
+        } else {
+            (sent * (1.0 - combinedLoss / 100.0))
+                .roundToInt()
+                .coerceIn(0, sent)
+        }
+
         return RouteMetrics(
             medianRttMs = median,
             jitterMs = jitter,
-            packetLossPct = loss.coerceIn(0.0, 100.0),
-            sent = minOf(first.sent, second.sent),
-            received = minOf(first.received, second.received),
+            packetLossPct = combinedLoss,
+            sent = sent,
+            received = received,
             p95RttMs = p95,
         )
     }
@@ -86,6 +96,24 @@ object RouteIntelligence {
         val boostedMedian = candidate.boostedMetrics.medianRttMs ?: return false
 
         val gainMs = directMedian - boostedMedian
+
+        val maxAllowedLoss = max(
+            2.0,
+            candidate.directMetrics.packetLossPct + 1.0,
+        )
+        if (candidate.boostedMetrics.packetLossPct > maxAllowedLoss) {
+            return false
+        }
+
+        val directP95 = candidate.directMetrics.p95RttMs
+        val boostedP95 = candidate.boostedMetrics.p95RttMs
+        if (directP95 != null && boostedP95 != null) {
+            val p95Budget = max(20, (directP95 * 0.25).roundToInt())
+            if (boostedP95 > directP95 + p95Budget) {
+                return false
+            }
+        }
+
         val minimumMeaningfulGainMs = max(
             6,
             (directMedian * MIN_GAIN_RATIO).roundToInt(),
