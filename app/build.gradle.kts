@@ -19,8 +19,8 @@ android {
         applicationId = "com.boostlab.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 9
-        versionName = "0.9.0-review-hardening"
+        versionCode = 10
+        versionName = "0.10.0-gateway-picker"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
