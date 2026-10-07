@@ -1171,15 +1171,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 persistProfile()
 
-                _state.value.selectedApp?.packageName?.let { selectedPackage ->
-                    routeMemoryStore.save(
-                        packageName = selectedPackage,
-                        boostMode = _state.value.boostMode,
-                        networkTransport = selectionTransport,
-                        gatewayId = gateway.node.id,
-                        gainMs = selection.gainMs,
-                    )
-                }
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     isLanDiscovering = false,
@@ -1579,7 +1570,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     routeMemoryStore.save(
                         packageName = selectedPackage,
                         boostMode = _state.value.boostMode,
-                        networkTransport = _state.value.networkTransport,
+                        networkTransport = selectionTransport,
                         gatewayId = gateway.node.id,
                         gainMs = selection.gainMs,
                     )
