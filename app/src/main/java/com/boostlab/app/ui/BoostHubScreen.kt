@@ -68,6 +68,7 @@ import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.model.CatalogGame
 import com.boostlab.app.model.GameCatalogTag
+import com.boostlab.app.network.GatewayNode
 import java.util.Locale
 
 private val HubNight = Color(0xFF080B12)
@@ -104,8 +105,9 @@ fun BoostHubScreen(
         Scaffold(
             containerColor = HubNight,
             bottomBar = {
-                NavigationBar(containerColor = Color(0xFF0B0F18)) {
-                    HubTab.entries.forEach { item ->
+                if (!state.routeSelectorVisible) {
+                    NavigationBar(containerColor = Color(0xFF0B0F18)) {
+                        HubTab.entries.forEach { item ->
                         NavigationBarItem(
                             selected = tab == item,
                             onClick = { tabName = item.name },
@@ -134,11 +136,18 @@ fun BoostHubScreen(
                                 )
                             },
                         )
+                        }
                     }
                 }
             },
         ) { padding ->
-            when (tab) {
+            if (state.routeSelectorVisible) {
+                GatewaySelectorPage(
+                    viewModel = viewModel,
+                    state = state,
+                    padding = padding,
+                )
+            } else when (tab) {
                 HubTab.GAMES -> GamesPage(viewModel, state, padding)
                 HubTab.BOOST -> BoostPage(viewModel, state, padding, onRequestVpnPermission)
                 HubTab.STATS -> StatsPage(viewModel, state, padding)
@@ -153,6 +162,321 @@ fun BoostHubScreen(
             }
         }
     }
+}
+
+@Composable
+private fun GatewaySelectorPage(
+    viewModel: BoostViewModel,
+    state: BoostState,
+    padding: PaddingValues,
+) {
+    val app = state.selectedApp
+    val groups = state.gatewayDirectory
+        .groupBy(::gatewayGroup)
+        .toSortedMap(compareBy { gatewayGroupOrder(it) })
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                app?.icon?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = app.label,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        app?.label ?: "BOOSTLAB",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 21.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "Выбор игрового маршрута",
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                }
+                TextButton(
+                    onClick = viewModel::closeRouteSelector,
+                    enabled = !state.isAutoSelecting && !state.isTunnelConnecting,
+                ) {
+                    Text("×", color = Color.White, fontSize = 30.sp)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(Color(0xFF2B3040)),
+            )
+        }
+
+        item {
+            GatewaySection(title = "Auto", subtitle = "Сам выберет лучший маршрут") {
+                AutoGatewayRow(
+                    title = "Auto 1 · Free",
+                    subtitle = "Минимальный ping",
+                    active = state.autoSelectBestNode && state.boostMode == "LOW_PING",
+                    busy = state.isAutoSelecting,
+                    onClick = { viewModel.selectAutoRoute("LOW_PING") },
+                )
+                AutoGatewayRow(
+                    title = "Auto 2 · Free",
+                    subtitle = "Smart · ping + jitter + loss",
+                    active = state.autoSelectBestNode && state.boostMode == "SMART",
+                    busy = state.isAutoSelecting,
+                    onClick = { viewModel.selectAutoRoute("SMART") },
+                )
+                AutoGatewayRow(
+                    title = "Auto 3 · Free",
+                    subtitle = "Самый стабильный маршрут",
+                    active = state.autoSelectBestNode && state.boostMode == "STABLE",
+                    busy = state.isAutoSelecting,
+                    onClick = { viewModel.selectAutoRoute("STABLE") },
+                )
+            }
+        }
+
+        if (state.gatewayDirectoryLoading && state.gatewayDirectory.isEmpty()) {
+            item {
+                InfoCard(
+                    "Ищем BOOSTLAB-серверы…",
+                    "Проверяем доступность и ping каждого Gateway.",
+                )
+            }
+        }
+
+        state.gatewayDirectoryError?.let { error ->
+            item {
+                Panel {
+                    Text("Серверы пока недоступны", color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(error, color = HubMuted, fontSize = 12.sp)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = viewModel::refreshGatewayDirectory,
+                        enabled = !state.gatewayDirectoryLoading,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (state.gatewayDirectoryLoading) "Проверяем…" else "Обновить список")
+                    }
+                }
+            }
+        }
+
+        groups.forEach { (group, nodes) ->
+            item {
+                GatewaySection(title = group, subtitle = "${nodes.size} серверов") {
+                    nodes.sortedWith(
+                        compareBy<GatewayNode> {
+                            state.gatewayDirectoryPingMs[it.id] ?: Int.MAX_VALUE
+                        }.thenBy { it.displayName ?: it.city ?: it.id },
+                    ).forEach { node ->
+                        GatewayNodeRow(
+                            node = node,
+                            pingMs = state.gatewayDirectoryPingMs[node.id],
+                            lossPct = state.gatewayDirectoryLossPct[node.id],
+                            selected = state.selectedGatewayId == node.id &&
+                                !state.autoSelectBestNode,
+                            onClick = { viewModel.selectGatewayFromDirectory(node.id) },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (state.gatewayDirectory.isNotEmpty()) {
+            item {
+                Text(
+                    "Все узлы FREE · Auto сравнивает реальные маршруты и не включает VPN, если DIRECT быстрее.",
+                    color = HubMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GatewaySection(
+    title: String,
+    subtitle: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Panel {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text(subtitle, color = HubMuted, fontSize = 10.sp)
+            }
+            Text("▂▄▆", color = HubMint, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(6.dp))
+        content()
+    }
+}
+
+@Composable
+private fun AutoGatewayRow(
+    title: String,
+    subtitle: String,
+    active: Boolean,
+    busy: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (active) Color(0xFF202838) else Color.Transparent)
+            .clickable(enabled = !busy, onClick = onClick)
+            .padding(vertical = 13.dp, horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF242B3A)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("⚡", fontSize = 20.sp)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+            Text(subtitle, color = HubMuted, fontSize = 10.sp)
+        }
+        if (active) {
+            Text("✓", color = HubMint, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        } else {
+            Text("▂▄▆", color = HubMint, fontSize = 18.sp)
+        }
+    }
+}
+
+@Composable
+private fun GatewayNodeRow(
+    node: GatewayNode,
+    pingMs: Int?,
+    lossPct: Double?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val signal = when {
+        lossPct != null && lossPct >= 20.0 -> "▂"
+        pingMs == null -> "· · ·"
+        pingMs <= 45 -> "▂▄▆"
+        pingMs <= 90 -> "▂▄"
+        else -> "▂"
+    }
+    val label = node.displayName
+        ?: node.city?.let { "${node.countryCode ?: node.region} - $it" }
+        ?: node.region
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (selected) Color(0xFF202838) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 13.dp, horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            countryFlag(node.countryCode),
+            fontSize = 28.sp,
+            modifier = Modifier.width(46.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                label,
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                buildString {
+                    append("FREE")
+                    if (pingMs != null) append(" · $pingMs ms")
+                    if (lossPct != null && lossPct > 0.0) {
+                        append(" · loss ")
+                        append(String.format(Locale.US, "%.0f%%", lossPct))
+                    }
+                },
+                color = if (pingMs != null) HubMint else HubMuted,
+                fontSize = 10.sp,
+            )
+        }
+        Text(
+            if (selected) "✓" else signal,
+            color = HubMint,
+            fontSize = if (selected) 20.sp else 18.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+private fun gatewayGroup(node: GatewayNode): String {
+    val code = node.countryCode?.uppercase()
+    return when (code) {
+        "US", "CA", "MX" -> "North America"
+        "BR", "AR", "CL", "CO", "PE" -> "South America"
+        "SG", "JP", "KR", "KZ", "IN", "HK", "TW", "TH", "MY", "ID", "VN", "AE" -> "Asia"
+        "AU", "NZ" -> "Oceania"
+        "ZA", "EG", "MA", "NG", "KE" -> "Africa"
+        "DE", "FI", "PL", "FR", "BE", "AT", "CZ", "CH", "NL", "GB", "IE",
+        "SE", "NO", "DK", "ES", "PT", "IT", "RO", "BG", "HU", "GR", "RS",
+        "UA", "RU", "TR" -> "Europe"
+        else -> when {
+            node.region.contains("asia", true) -> "Asia"
+            node.region.contains("america", true) || node.region.contains("us", true) -> "North America"
+            node.region.contains("oceania", true) || node.region.contains("australia", true) -> "Oceania"
+            node.region.contains("europe", true) || node.region.contains("eu", true) -> "Europe"
+            else -> "Other"
+        }
+    }
+}
+
+private fun gatewayGroupOrder(group: String): Int = when (group) {
+    "Europe" -> 0
+    "North America" -> 1
+    "South America" -> 2
+    "Asia" -> 3
+    "Oceania" -> 4
+    "Africa" -> 5
+    else -> 6
+}
+
+private fun countryFlag(countryCode: String?): String {
+    val code = countryCode?.uppercase()?.takeIf { it.length == 2 } ?: return "🌐"
+    if (code.any { it !in 'A'..'Z' }) return "🌐"
+    return code.map { char ->
+        Character.toChars(0x1F1E6 + (char.code - 'A'.code)).concatToString()
+    }.joinToString("")
 }
 
 @Composable
