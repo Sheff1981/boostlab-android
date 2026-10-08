@@ -644,12 +644,12 @@ private fun BoostPage(
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MetricBox(
-                        "DIRECT",
+                        "DIRECT ROUTE",
                         state.directPingMs?.let { "$it ms" } ?: "—",
                         Modifier.weight(1f),
                     )
                     MetricBox(
-                        "BOOST",
+                        "BOOST ROUTE",
                         state.boostedEstimatedPingMs?.let { "$it ms" } ?: "—",
                         Modifier.weight(1f),
                     )
@@ -678,6 +678,15 @@ private fun BoostPage(
                     fontSize = 10.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (state.routeTargetId != null) {
+                        "Это измерение сетевого маршрута. Ping внутри самой игры может отличаться."
+                    } else {
+                        "Без игрового target показываем только RTT до Gateway — это не игровой ping."
+                    },
+                    color = HubMuted,
+                    fontSize = 10.sp,
                 )
             }
         }
@@ -892,7 +901,14 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 Text("Режим: ${state.boostMode} · регион: ${state.preferredRegion}", color = HubMuted, fontSize = 11.sp)
                 Text(
                     "Маршрут: ${state.routeHealth} · ошибок проверки подряд: ${state.routeProbeFailures}",
-                    color = if (state.routeHealth in setOf("DEGRADED", "NETWORK_CHANGED")) {
+                    color = if (
+                        state.routeHealth in setOf(
+                            "DEGRADED",
+                            "NETWORK_CHANGED",
+                            "DISCONNECT_FAILED",
+                            "VPN_CONFLICT",
+                        )
+                    ) {
                         HubError
                     } else {
                         HubMuted
@@ -1494,9 +1510,21 @@ private fun NetworkHero(state: BoostState) {
         Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MetricBox("PING", if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт", Modifier.weight(1f))
+            MetricBox(
+                if (state.routeTargetId != null) "ROUTE RTT" else "GATEWAY RTT",
+                if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт",
+                Modifier.weight(1f),
+            )
             MetricBox("JITTER", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
             MetricBox("LOSS", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
+        }
+        if (state.routeTargetId != null) {
+            Spacer(Modifier.height(7.dp))
+            Text(
+                "ROUTE RTT — сетевой замер до игрового test target, а не внутриигровой счётчик ping.",
+                color = HubMuted,
+                fontSize = 10.sp,
+            )
         }
     }
 }
