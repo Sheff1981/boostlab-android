@@ -416,8 +416,8 @@ private fun GatewayNodeRow(
         pingMs <= 90 -> "▂▄"
         else -> "▂"
     }
-    val label = node.displayName
-        ?: node.city?.let { "${node.countryCode ?: node.region} - $it" }
+    val label = node.city?.let { "${node.countryCode ?: node.region} - $it" }
+        ?: node.displayName
         ?: node.region
 
     Row(
