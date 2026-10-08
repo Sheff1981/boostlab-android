@@ -161,6 +161,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             lastBoostPingMs = history.lastPingMs,
             lastBoostJitterMs = history.lastJitterMs,
             lastBoostPacketLossPct = history.lastPacketLossPct,
+            lastRouteGainMs = history.lastRouteGainMs,
+            lastGameTrafficVerified = history.lastGameTrafficVerified,
+            lastRouteHealth = history.lastRouteHealth,
+            lastRouteRecommendation = history.lastRouteRecommendation,
             serverLabel = if (saved.gatewayHost.isNotBlank()) {
                 "Сохранённый сервер: ${saved.gatewayHost}"
             } else {
@@ -2027,6 +2031,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
                         lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
                         lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
+                        lastRouteGainMs = history?.lastRouteGainMs ?: _state.value.lastRouteGainMs,
+                        lastGameTrafficVerified = history?.lastGameTrafficVerified
+                            ?: _state.value.lastGameTrafficVerified,
+                        lastRouteHealth = history?.lastRouteHealth ?: _state.value.lastRouteHealth,
+                        lastRouteRecommendation = history?.lastRouteRecommendation
+                            ?: _state.value.lastRouteRecommendation,
                     )
                     debugLog(
                         if (routeRestored) {
@@ -2187,6 +2197,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
                             lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
                             lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
+                        lastRouteGainMs = history?.lastRouteGainMs ?: _state.value.lastRouteGainMs,
+                        lastGameTrafficVerified = history?.lastGameTrafficVerified
+                            ?: _state.value.lastGameTrafficVerified,
+                        lastRouteHealth = history?.lastRouteHealth ?: _state.value.lastRouteHealth,
+                        lastRouteRecommendation = history?.lastRouteRecommendation
+                            ?: _state.value.lastRouteRecommendation,
                         )
                         break
                     }
@@ -2654,6 +2670,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             pingMs = snapshot.pingMs,
             jitterMs = snapshot.jitterMs,
             packetLossPct = snapshot.packetLossPct,
+            routeGainMs = snapshot.routeGainMs,
+            gameTrafficVerified = snapshot.gameTrafficVerified,
+            routeHealth = snapshot.routeHealth,
+            routeRecommendation = snapshot.routeRecommendation,
         )
     }
 
