@@ -2000,18 +2000,52 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
                 when (runCatching { tunnelController.state() }.getOrNull()) {
                     Tunnel.State.DOWN -> {
+                        val canRetryPinnedRoute =
+                            !physicalNetworkChanged &&
+                                !mtuChanged &&
+                                snapshot.selectedApp != null &&
+                                snapshot.gatewayHost.isNotBlank() &&
+                                snapshot.wireGuardServerPublicKey.isNotBlank()
+
+                        if (canRetryPinnedRoute) {
+                            _state.value = _state.value.copy(
+                                isTunnelConnecting = true,
+                                routeHealth = "RECONNECTING",
+                                serverLabel = "Восстанавливаем тот же Gateway…",
+                                tunnelError = null,
+                            )
+                            val restored = reconnectPinnedGateway(snapshot)
+                            if (restored) {
+                                consecutiveProbeFailures = 0
+                                consecutiveDirectWins = 0
+                                continue
+                            }
+                        }
+
                         val history = recordBoostSessionIfNeeded()
                         trafficBaselineRx = 0L
                         trafficBaselineTx = 0L
                         _state.value = _state.value.copy(
                             isBoosting = false,
                             isTunnelConnecting = false,
-                            serverLabel = "Буст отключён",
-                            tunnelError = "VPN-туннель остановлен",
+                            serverLabel = if (physicalNetworkChanged || mtuChanged) {
+                                "Сеть изменилась · запусти Boost заново"
+                            } else {
+                                "Буст отключён"
+                            },
+                            tunnelError = if (physicalNetworkChanged || mtuChanged) {
+                                "Маршрут изменился — автоматическая смена сервера отключена"
+                            } else {
+                                "VPN-туннель остановлен; тот же Gateway не восстановился"
+                            },
                             tunnelRxBytes = 0L,
                             tunnelTxBytes = 0L,
                             gameTrafficVerified = false,
-                            routeHealth = "DOWN",
+                            routeHealth = if (physicalNetworkChanged || mtuChanged) {
+                                "NETWORK_CHANGED"
+                            } else {
+                                "DOWN"
+                            },
                             boostStartedAtEpochMs = null,
                             boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
                             totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
@@ -2500,6 +2534,51 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         runCatching { appContext.startActivity(chooser) }
     }
 
+    private suspend fun reconnectPinnedGateway(snapshot: BoostState): Boolean {
+        val app = snapshot.selectedApp ?: return false
+        val identity = runCatching { identityStore.loadOrCreate() }.getOrNull() ?: return false
+        val profile = TunnelProfile(
+            privateKey = identity.privateKeyBase64,
+            serverPublicKey = snapshot.wireGuardServerPublicKey,
+            endpointHost = snapshot.gatewayHost,
+            endpointPort = snapshot.wireGuardPort,
+            addressCidr = snapshot.tunnelAddress,
+            dnsServer = activeDnsValue(snapshot),
+            selectedPackage = app.packageName,
+            mtu = snapshot.tunnelMtu,
+        )
+
+        repeat(PINNED_RECONNECT_ATTEMPTS) { attempt ->
+            val state = runCatching { tunnelController.connect(profile) }.getOrNull()
+            if (state == Tunnel.State.UP) {
+                val traffic = runCatching {
+                    tunnelController.traffic(snapshot.wireGuardServerPublicKey)
+                }.getOrNull()
+                trafficBaselineRx = traffic?.rxBytes ?: 0L
+                trafficBaselineTx = traffic?.txBytes ?: 0L
+                snapshot.selectedGatewayId?.let(::clearGatewayFailure)
+                _state.value = _state.value.copy(
+                    isBoosting = true,
+                    isTunnelConnecting = false,
+                    tunnelError = null,
+                    routeHealth = "RECONNECTED",
+                    serverLabel = "Тот же Gateway восстановлен · ${snapshot.selectedGatewayRegion ?: snapshot.gatewayHost}",
+                    tunnelRxBytes = traffic?.rxBytes ?: 0L,
+                    tunnelTxBytes = traffic?.txBytes ?: 0L,
+                    gameTrafficVerified = false,
+                )
+                debugLog("WireGuard восстановлен без смены Gateway")
+                return true
+            }
+            if (attempt + 1 < PINNED_RECONNECT_ATTEMPTS) {
+                delay(PINNED_RECONNECT_RETRY_MS)
+            }
+        }
+
+        snapshot.selectedGatewayId?.let(::markGatewayFailure)
+        return false
+    }
+
     private fun markGatewayFailure(nodeId: String) {
         val id = nodeId.trim()
         if (id.isBlank()) return
@@ -2639,5 +2718,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val DEVICE_SESSION_REFRESH_MARGIN_MS = 30_000L
         private const val LIVE_MTU_DRIFT_THRESHOLD = 40
         private const val GATEWAY_FAILURE_COOLDOWN_MS = 120_000L
+        private const val PINNED_RECONNECT_ATTEMPTS = 2
+        private const val PINNED_RECONNECT_RETRY_MS = 750L
     }
 }
