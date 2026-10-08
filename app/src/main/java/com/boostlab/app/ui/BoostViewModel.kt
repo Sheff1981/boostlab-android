@@ -17,6 +17,7 @@ import com.boostlab.app.data.PrivateProfileStore
 import com.boostlab.app.data.RouteMemoryStore
 import com.boostlab.app.data.SocialStore
 import com.boostlab.app.data.UserSettingsStore
+import com.boostlab.app.diagnostics.NetworkDiagnosticReport
 import com.boostlab.app.data.PrivateServerProfile
 import com.boostlab.app.boost.GameBoostEngine
 import com.boostlab.app.boost.GameLaunchAdvisor
@@ -949,7 +950,17 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exportDiagnosticLog() {
-        shareText("BOOSTLAB diagnostic log", diagnosticLogStore.exportText())
+        val report = NetworkDiagnosticReport.build(_state.value)
+        val recentLog = diagnosticLogStore.exportText().trim()
+        val body = buildString {
+            appendLine(report.trimEnd())
+            if (recentLog.isNotBlank()) {
+                appendLine()
+                appendLine("Recent diagnostic log")
+                appendLine(recentLog)
+            }
+        }
+        shareText("BOOSTLAB diagnostic report", body)
     }
 
     fun clearDiagnosticLog() {
@@ -967,16 +978,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun shareFeedbackReport() {
-        val snapshot = _state.value
-        val metrics = "ping=${snapshot.pingMs ?: "-"}ms, jitter=${snapshot.jitterMs ?: "-"}ms, loss=${snapshot.packetLossPct ?: "-"}%"
-        val game = snapshot.selectedApp?.label ?: "не выбрана"
         val body = buildString {
-            appendLine("BOOSTLAB feedback")
-            appendLine("Игра: $game")
-            appendLine("Режим: ${snapshot.boostMode}")
-            appendLine("Регион: ${snapshot.preferredRegion}")
-            appendLine("Узел: ${snapshot.selectedGatewayRegion ?: "-"} / ${snapshot.selectedGatewayId ?: "-"}")
-            appendLine("Метрики: $metrics")
+            appendLine(NetworkDiagnosticReport.build(_state.value).trimEnd())
             appendLine()
             appendLine("Опиши проблему ниже:")
         }
