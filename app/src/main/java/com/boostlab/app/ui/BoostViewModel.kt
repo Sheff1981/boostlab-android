@@ -93,6 +93,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val voiceController = WebRtcVoiceController(appContext)
     private val notificationCenter = AppNotificationCenter(appContext)
     private var liveMetricsJob: Job? = null
+    private var gatewayDirectoryJob: Job? = null
     private var squadSyncJob: Job? = null
     private var directSyncJob: Job? = null
     private var squadLastEventId = 0L
@@ -284,7 +285,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             gatewayDirectoryError = null,
         )
 
-        viewModelScope.launch {
+        gatewayDirectoryJob?.cancel()
+        gatewayDirectoryJob = viewModelScope.launch {
             runCatching {
                 controlPlane.fetchNodes(_state.value.controlPlaneUrl)
                     .filter {
@@ -1265,6 +1267,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             current.isBoosting ||
             current.isTunnelConnecting
         ) return
+
+        gatewayDirectoryJob?.cancel()
+        gatewayDirectoryJob = null
+        if (current.gatewayDirectoryLoading) {
+            _state.value = current.copy(gatewayDirectoryLoading = false)
+        }
 
         val readiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
         if (readiness?.vpnActive == true) {
