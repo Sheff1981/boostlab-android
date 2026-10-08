@@ -397,8 +397,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             p95PingMs = null,
             jitterMs = null,
             packetLossPct = snapshot.gatewayDirectoryLossPct[node.id],
-            serverLabel = node.displayName
-                ?: node.city?.let { "${node.countryCode ?: node.region} · $it" }
+            serverLabel = node.city?.let { "${node.countryCode ?: node.region} · $it" }
+                ?: node.displayName
                 ?: node.region,
             probeError = null,
             tunnelError = null,
