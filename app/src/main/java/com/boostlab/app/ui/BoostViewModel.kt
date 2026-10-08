@@ -38,12 +38,14 @@ import com.boostlab.app.network.AutoRouteSelection
 import com.boostlab.app.network.GatewayCapacityPolicy
 import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
+import com.boostlab.app.network.GameRouteTarget
 import com.boostlab.app.network.LanGatewayDiscovery
 import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteRacePolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.SquadApiClient
 import com.boostlab.app.network.UdpRouteProbe
+import com.boostlab.app.network.WarmRoutePolicy
 import com.boostlab.app.notifications.AppNotificationCenter
 import com.boostlab.app.tunnel.ClientIdentityStore
 import com.boostlab.app.tunnel.TunnelMtuPolicy
@@ -1312,12 +1314,56 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val packageName = snapshot.selectedApp?.packageName
-                val rememberedGatewayId = packageName?.let {
+                val rememberedMemory = packageName?.let {
                     routeMemoryStore.load(
                         packageName = it,
                         boostMode = snapshot.boostMode,
                         networkTransport = selectionTransport,
-                    )?.gatewayId
+                    )
+                }
+                val rememberedGatewayId = rememberedMemory?.gatewayId
+
+                val routeTargets = if (!packageName.isNullOrBlank()) {
+                    runCatching {
+                        controlPlane.fetchRouteTargets(
+                            snapshot.controlPlaneUrl,
+                            packageName,
+                        )
+                    }.getOrDefault(emptyList())
+                } else {
+                    emptyList()
+                }
+
+                val warmNode = rememberedMemory
+                    ?.takeIf {
+                        WarmRoutePolicy.canFastVerify(
+                            updatedAtEpochMs = it.updatedAtEpochMs,
+                            previousGainMs = it.gainMs,
+                        )
+                    }
+                    ?.let { memory ->
+                        nodes.firstOrNull { node ->
+                            node.id == memory.gatewayId &&
+                                !node.routeApiUrl.isNullOrBlank()
+                        }
+                    }
+
+                if (warmNode != null && routeTargets.isNotEmpty()) {
+                    _state.value = _state.value.copy(
+                        discoveredNodes = nodes.size,
+                        serverLabel = "Быстро проверяем прошлый лучший маршрут…",
+                    )
+                    val warmSelection = runCatching {
+                        tryWarmRememberedRoute(
+                            snapshot = snapshot,
+                            node = warmNode,
+                            targets = routeTargets,
+                        )
+                    }.getOrNull()
+
+                    if (warmSelection != null) {
+                        return@runCatching warmSelection
+                    }
                 }
 
                 _state.value = _state.value.copy(
@@ -1394,17 +1440,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     error("Финалисты не подтвердили стабильный маршрут")
                 }
 
-                val packageNameForTargets = packageName
-                val targets = if (!packageNameForTargets.isNullOrBlank()) {
-                    runCatching {
-                        controlPlane.fetchRouteTargets(
-                            snapshot.controlPlaneUrl,
-                            packageNameForTargets,
-                        )
-                    }.getOrDefault(emptyList())
-                } else {
-                    emptyList()
-                }
+                val targets = routeTargets
 
                 if (targets.isEmpty() || eligibleAccess.none { !it.node.routeApiUrl.isNullOrBlank() }) {
                     val best = eligibleAccess.minByOrNull { it.score }
@@ -2678,6 +2714,138 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
+    private suspend fun tryWarmRememberedRoute(
+        snapshot: BoostState,
+        node: GatewayNode,
+        targets: List<GameRouteTarget>,
+    ): AutoRouteSelection? {
+        if (
+            node.wireGuardPublicKey.isNullOrBlank() ||
+            node.wireGuardPort == null ||
+            node.routeApiUrl.isNullOrBlank()
+        ) {
+            return null
+        }
+
+        val routeApiUrl = requireNotNull(node.routeApiUrl)
+        val (accessMetrics, runtimeStatus) = coroutineScope {
+            val access = async {
+                routeProbe.measure(
+                    host = node.host,
+                    port = node.udpPort,
+                    samples = WARM_ROUTE_ACCESS_SAMPLES,
+                )
+            }
+            val status = async {
+                gatewayStatusClient.fetch(routeApiUrl)
+            }
+            access.await() to status.await()
+        }
+
+        if (
+            accessMetrics.received <= 0 ||
+            !runtimeStatus.dataPlaneReady
+        ) {
+            return null
+        }
+
+        val capacityPenalty = GatewayCapacityPolicy.penalty(runtimeStatus)
+        val accessScore = routeScore(accessMetrics, snapshot.boostMode) + capacityPenalty
+        if (!accessScore.isFinite()) {
+            return null
+        }
+
+        val checkedTargets = targets.take(WARM_ROUTE_MAX_TARGETS)
+        if (checkedTargets.isEmpty()) {
+            return null
+        }
+
+        val directMeasurements = coroutineScope {
+            checkedTargets.map { target ->
+                async {
+                    runCatching {
+                        target to directRouteProbe.measure(
+                            host = target.host,
+                            port = target.tcpPort,
+                            samples = WARM_ROUTE_DIRECT_SAMPLES,
+                        )
+                    }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
+        }.filter { (_, metrics) ->
+            metrics.received > 0 &&
+                routeScore(metrics, snapshot.boostMode).isFinite()
+        }
+
+        val directByTarget = directMeasurements.associate { (target, metrics) ->
+            target.id to metrics
+        }
+        if (directByTarget.isEmpty()) {
+            return null
+        }
+
+        val candidates = coroutineScope {
+            checkedTargets.mapNotNull { target ->
+                if (directByTarget[target.id] == null) {
+                    null
+                } else {
+                    async {
+                        runCatching {
+                            val remote = gatewayRouteQuality.fetch(
+                                routeApiUrl = routeApiUrl,
+                                target = target,
+                            )
+                            if (
+                                remote.metrics.received <= 0 ||
+                                remote.metrics.medianRttMs == null
+                            ) {
+                                return@runCatching null
+                            }
+
+                            RouteIntelligence.buildCandidate(
+                                node = node,
+                                target = target,
+                                directByTarget = directByTarget,
+                                phoneToGatewayMetrics = accessMetrics,
+                                gatewayToGameMetrics = remote.metrics,
+                                capacityPenalty = capacityPenalty,
+                                scorer = { metrics ->
+                                    routeScore(metrics, snapshot.boostMode)
+                                },
+                            )
+                        }.getOrNull()
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
+
+        val best = candidates.minByOrNull { it.boostedScore } ?: return null
+        if (!RouteIntelligence.shouldUseBoost(best, snapshot.boostMode)) {
+            return null
+        }
+
+        debugLog(
+            "Warm Route подтверждён: ${node.id}; " +
+                "direct=${best.directMetrics.medianRttMs}ms, " +
+                "boost=${best.boostedMetrics.medianRttMs}ms",
+        )
+
+        return AutoRouteSelection(
+            gateway = GatewayMeasurement(
+                node = node,
+                metrics = best.boostedMetrics,
+                score = best.boostedScore,
+                capacityPenalty = capacityPenalty,
+            ),
+            recommendation = "BOOST",
+            target = best.target,
+            directMetrics = best.directMetrics,
+            boostedMetrics = best.boostedMetrics,
+            gainMs = best.gainMs,
+            candidatesTested = candidates.size,
+        )
+    }
+
     private fun markGatewayFailure(nodeId: String) {
         val id = nodeId.trim()
         if (id.isBlank()) return
@@ -2795,6 +2963,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val AUTO_FINALISTS = 3
         private const val AUTO_QUICK_SAMPLES = 3
         private const val AUTO_FINAL_SAMPLES = 7
+        private const val WARM_ROUTE_ACCESS_SAMPLES = 4
+        private const val WARM_ROUTE_DIRECT_SAMPLES = 4
+        private const val WARM_ROUTE_MAX_TARGETS = 3
         private const val MAX_DIRECTORY_NODES = 64
         private const val DIRECTORY_SAMPLES = 3
         private const val LAN_AUTO_SAMPLES = 4
