@@ -1929,7 +1929,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         },
                         boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
                         totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
-                        lastBoostSeconds = history?.lastSeconds ?: _state.value.lastBoostSeconds,
+                        lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
                         lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
                         lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
                         lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
