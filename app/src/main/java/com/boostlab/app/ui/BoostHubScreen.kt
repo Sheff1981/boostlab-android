@@ -869,6 +869,8 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
             InfoCard(
                 when {
                     state.gameTrafficVerified -> "Игровой трафик подтверждён"
+                    state.routeHealth == "NO_GAME_TRAFFIC" ->
+                        "VPN подключён, но трафик выбранной игры не обнаружен"
                     state.isBoosting -> "Handshake есть · ждём трафик игры"
                     else -> "Проверка игрового трафика выключена"
                 },
@@ -907,6 +909,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                             "NETWORK_CHANGED",
                             "DISCONNECT_FAILED",
                             "VPN_CONFLICT",
+                            "NO_GAME_TRAFFIC",
                         )
                     ) {
                         HubError
