@@ -40,6 +40,7 @@ import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
 import com.boostlab.app.network.GameRouteTarget
 import com.boostlab.app.network.LanGatewayDiscovery
+import com.boostlab.app.network.PinnedReconnectPolicy
 import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteRacePolicy
 import com.boostlab.app.network.RouteScorer
@@ -2132,11 +2133,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 when (runCatching { tunnelController.state() }.getOrNull()) {
                     Tunnel.State.DOWN -> {
                         val canRetryPinnedRoute =
-                            !physicalNetworkChanged &&
-                                !mtuChanged &&
-                                snapshot.selectedApp != null &&
-                                snapshot.gatewayHost.isNotBlank() &&
-                                snapshot.wireGuardServerPublicKey.isNotBlank()
+                            PinnedReconnectPolicy.canRetrySameGateway(
+                                physicalNetworkChanged = physicalNetworkChanged,
+                                mtuChanged = mtuChanged,
+                                hasSelectedApp = snapshot.selectedApp != null,
+                                gatewayHost = snapshot.gatewayHost,
+                                wireGuardServerPublicKey = snapshot.wireGuardServerPublicKey,
+                            )
 
                         if (canRetryPinnedRoute) {
                             _state.value = _state.value.copy(
