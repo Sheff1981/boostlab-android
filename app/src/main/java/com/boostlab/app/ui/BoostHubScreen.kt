@@ -915,6 +915,15 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     },
                     fontSize = 11.sp,
                 )
+                Text(
+                    "Мониторинг: ${state.liveProbeMode}",
+                    color = when (state.liveProbeMode) {
+                        "THERMAL_CRITICAL", "THERMAL_SAFE" -> HubError
+                        "POWER_SAVE" -> HubCyan
+                        else -> HubMuted
+                    },
+                    fontSize = 10.sp,
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = viewModel::probeGateway,
