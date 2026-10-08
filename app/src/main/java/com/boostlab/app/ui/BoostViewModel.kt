@@ -22,6 +22,7 @@ import com.boostlab.app.data.PrivateServerProfile
 import com.boostlab.app.boost.GameBoostEngine
 import com.boostlab.app.boost.GameLaunchAdvisor
 import com.boostlab.app.boost.GameLaunchPolicy
+import com.boostlab.app.boost.GameTrafficWatchdogPolicy
 import com.boostlab.app.boost.LiveProbeCadencePolicy
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
@@ -2155,14 +2156,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 } ?: 0L
                 val trafficVerifiedNow = transferredSinceConnect >= TRAFFIC_VERIFY_MIN_BYTES
                 val trafficVerified = _state.value.gameTrafficVerified || trafficVerifiedNow
-                val launchAgeMs = snapshot.gameLaunchedAtEpochMs?.let {
-                    (System.currentTimeMillis() - it).coerceAtLeast(0L)
-                }
-                val noGameTraffic = (
-                    !trafficVerified &&
-                        launchAgeMs != null &&
-                        launchAgeMs in NO_GAME_TRAFFIC_GRACE_MS..NO_GAME_TRAFFIC_TRACK_WINDOW_MS
-                    )
+                val noGameTraffic = GameTrafficWatchdogPolicy.noGameTraffic(
+                    gameLaunchedAtEpochMs = snapshot.gameLaunchedAtEpochMs,
+                    nowEpochMs = System.currentTimeMillis(),
+                    trafficVerified = trafficVerified,
+                )
 
                 if (traffic != null && _state.value.isBoosting) {
                     _state.value = _state.value.copy(
@@ -2802,8 +2800,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val LAN_AUTO_SAMPLES = 4
 
         private const val TRAFFIC_VERIFY_MIN_BYTES = 1_024L
-        private const val NO_GAME_TRAFFIC_GRACE_MS = 20_000L
-        private const val NO_GAME_TRAFFIC_TRACK_WINDOW_MS = 10L * 60L * 1000L
         private const val MAX_LIVE_PROBE_FAILURES = 3
         private const val SQUAD_SYNC_INTERVAL_MS = 3_000L
         private const val SQUAD_VOICE_SYNC_INTERVAL_MS = 750L
