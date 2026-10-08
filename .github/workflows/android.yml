@@ -1,4 +1,5 @@
 name: Android CI
+# Stable signing enabled via repository secret
 
 on:
   push:
