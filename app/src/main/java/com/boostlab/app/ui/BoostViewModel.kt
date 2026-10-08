@@ -21,6 +21,7 @@ import com.boostlab.app.data.PrivateServerProfile
 import com.boostlab.app.boost.GameBoostEngine
 import com.boostlab.app.boost.GameLaunchAdvisor
 import com.boostlab.app.boost.GameLaunchPolicy
+import com.boostlab.app.boost.LiveProbeCadencePolicy
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.model.GameLaunchMode
@@ -2018,6 +2019,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
                 val liveReadiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
                 val liveTransport = liveReadiness?.networkTransport
+                val probeBudget = LiveProbeCadencePolicy.choose(
+                    powerSaveMode = liveReadiness?.powerSaveMode,
+                    thermalStatus = liveReadiness?.thermalStatus,
+                )
                 val liveRecommendedMtu = TunnelMtuPolicy.choose(
                     linkMtu = liveReadiness?.networkMtu,
                     networkTransport = liveTransport,
@@ -2115,7 +2120,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     routeProbe.measure(
                         host = snapshot.gatewayHost,
                         port = snapshot.gatewayPort,
-                        samples = LIVE_METRICS_SAMPLES,
+                        samples = probeBudget.accessSamples,
                     )
                 }
                 val accessMetrics = accessResult.getOrNull()
@@ -2135,7 +2140,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     if (
                         intelligenceReady &&
                         (
-                            intelligenceCycle % LIVE_ROUTE_REFRESH_CYCLES == 0 ||
+                            intelligenceCycle % probeBudget.routeRefreshCycles == 0 ||
                                 cachedGatewayToGame == null ||
                                 cachedDirectToGame == null
                             )
@@ -2155,7 +2160,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             directRouteProbe.measure(
                                 host = requireNotNull(snapshot.routeTargetHost),
                                 port = requireNotNull(snapshot.routeTargetPort),
-                                samples = LIVE_DIRECT_ROUTE_SAMPLES,
+                                samples = probeBudget.directSamples,
                             )
                         }.getOrNull()
 
@@ -2210,6 +2215,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             routeProbeFailures = consecutiveProbeFailures,
                             networkTransport = liveTransport ?: _state.value.networkTransport,
                             networkMtu = liveReadiness?.networkMtu ?: _state.value.networkMtu,
+                            powerSaveMode = liveReadiness?.powerSaveMode ?: _state.value.powerSaveMode,
+                            thermalStatus = liveReadiness?.thermalStatus ?: _state.value.thermalStatus,
+                            liveProbeMode = probeBudget.label,
                             routeHealth = when {
                                 physicalNetworkChanged || mtuChanged -> "NETWORK_CHANGED"
                                 consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES -> "DEGRADED"
@@ -2249,7 +2257,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                delay(LIVE_METRICS_INTERVAL_MS)
+                delay(probeBudget.intervalMs)
             }
         }
     }
@@ -2733,8 +2741,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_DIRECTORY_NODES = 64
         private const val DIRECTORY_SAMPLES = 3
         private const val LAN_AUTO_SAMPLES = 4
-        private const val LIVE_METRICS_SAMPLES = 4
-        private const val LIVE_METRICS_INTERVAL_MS = 5_000L
+
         private const val TRAFFIC_VERIFY_MIN_BYTES = 1_024L
         private const val MAX_LIVE_PROBE_FAILURES = 3
         private const val SQUAD_SYNC_INTERVAL_MS = 3_000L
@@ -2744,8 +2751,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_DIRECT_MESSAGES = 100
         private const val MAX_PENDING_VOICE_ICE = 64
         private const val DIRECT_ROUTE_SAMPLES = 7
-        private const val LIVE_DIRECT_ROUTE_SAMPLES = 3
-        private const val LIVE_ROUTE_REFRESH_CYCLES = 2
+
         private const val MAX_ROUTE_DECISION_AGE_MS = 2L * 60L * 1000L
         private const val ROUTE_REGRESSION_MS = 10
         private const val MAX_DIRECT_WIN_CYCLES = 3
