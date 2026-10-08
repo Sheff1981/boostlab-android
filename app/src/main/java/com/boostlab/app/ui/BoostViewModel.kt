@@ -1892,34 +1892,61 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         viewModelScope.launch {
-            runCatching { tunnelController.disconnect() }
-                .onSuccess {
+            runCatching {
+                tunnelController.disconnectVerified()
+                delay(150L)
+                gameBoostEngine.inspect()
+            }
+                .onSuccess { readiness ->
                     val history = recordBoostSessionIfNeeded()
                     trafficBaselineRx = 0L
                     trafficBaselineTx = 0L
+
+                    val routeRestored = !readiness.vpnActive
                     _state.value = _state.value.copy(
                         isTunnelConnecting = false,
                         isBoosting = false,
-                        tunnelError = null,
+                        tunnelError = if (routeRestored) {
+                            null
+                        } else {
+                            "BOOSTLAB выключен, но Android сообщает об активном VPN"
+                        },
                         tunnelRxBytes = 0L,
                         tunnelTxBytes = 0L,
                         gameTrafficVerified = false,
-                        routeHealth = "IDLE",
+                        routeHealth = if (routeRestored) "IDLE" else "VPN_CONFLICT",
                         routeProbeFailures = 0,
                         boostStartedAtEpochMs = null,
+                        networkValidated = readiness.networkValidated,
+                        networkTransport = readiness.networkTransport,
+                        networkMtu = readiness.networkMtu,
+                        externalVpnDetected = readiness.vpnActive,
+                        serverLabel = when {
+                            readiness.vpnActive -> "BOOSTLAB выключен · обнаружен другой VPN"
+                            readiness.networkValidated == false ->
+                                "BOOSTLAB выключен · интернет пока не подтверждён"
+                            else -> "Системный маршрут восстановлен"
+                        },
                         boostSessionCount = history?.sessionCount ?: _state.value.boostSessionCount,
                         totalBoostSeconds = history?.totalBoostSeconds ?: _state.value.totalBoostSeconds,
-                        lastBoostSeconds = history?.lastBoostSeconds ?: _state.value.lastBoostSeconds,
+                        lastBoostSeconds = history?.lastSeconds ?: _state.value.lastBoostSeconds,
                         lastBoostPingMs = history?.lastPingMs ?: _state.value.lastBoostPingMs,
                         lastBoostJitterMs = history?.lastJitterMs ?: _state.value.lastBoostJitterMs,
                         lastBoostPacketLossPct = history?.lastPacketLossPct ?: _state.value.lastBoostPacketLossPct,
                     )
-                    debugLog("Network Boost отключён; системный маршрут восстановлен")
+                    debugLog(
+                        if (routeRestored) {
+                            "Network Boost отключён; WireGuard DOWN подтверждён"
+                        } else {
+                            "BOOSTLAB отключён, но найден внешний VPN"
+                        },
+                    )
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(
                         isTunnelConnecting = false,
-                        tunnelError = "WireGuard disconnect failed: ${error::class.java.simpleName}",
+                        tunnelError = "WireGuard disconnect verify failed: ${error::class.java.simpleName}",
+                        routeHealth = "DISCONNECT_FAILED",
                     )
                     if (_state.value.isBoosting) {
                         startLiveMetrics()
@@ -1959,7 +1986,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         if (existingTunnelState == Tunnel.State.UP) {
-            runCatching { tunnelController.disconnect() }
+            runCatching { tunnelController.disconnectVerified() }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        tunnelError = "Не удалось подтвердить остановку старого VPN-туннеля",
+                        routeHealth = "DISCONNECT_FAILED",
+                    )
+                    return
+                }
         }
 
         if (saved.controlPlaneUrl.startsWith("https://") && _state.value.autoSelectBestNode) {
