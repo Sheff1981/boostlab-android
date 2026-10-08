@@ -20,7 +20,21 @@ object WireGuardConfigFactory {
             port = profile.endpointPort,
         )
 
-        val text = buildString {
+        val text = render(profile, endpoint)
+
+        return ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)).use(Config::parse)
+    }
+
+    internal fun render(profile: TunnelProfile): String {
+        val endpoint = formatEndpoint(
+            host = profile.endpointHost,
+            port = profile.endpointPort,
+        )
+        return render(profile, endpoint)
+    }
+
+    private fun render(profile: TunnelProfile, endpoint: String): String {
+        return buildString {
             appendLine("[Interface]")
             appendLine("PrivateKey = ${profile.privateKey}")
             appendLine("Address = ${profile.addressCidr}")
@@ -36,8 +50,6 @@ object WireGuardConfigFactory {
                 appendLine("PersistentKeepalive = ${profile.persistentKeepaliveSeconds}")
             }
         }
-
-        return ByteArrayInputStream(text.toByteArray(Charsets.UTF_8)).use(Config::parse)
     }
 
     internal fun formatEndpoint(host: String, port: Int): String {
