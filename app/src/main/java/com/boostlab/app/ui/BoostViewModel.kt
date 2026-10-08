@@ -177,6 +177,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             }
 
         refreshGameReadiness()
+        prefetchGatewayDirectory()
 
         viewModelScope.launch {
             restoreTunnelOrRefreshRoute(saved)
@@ -184,6 +185,33 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         startSquadSync()
         refreshRemoteCatalog()
         refreshVoiceInfrastructure()
+    }
+
+    private fun prefetchGatewayDirectory() {
+        val baseUrl = _state.value.controlPlaneUrl
+        if (!baseUrl.startsWith("https://")) return
+
+        viewModelScope.launch {
+            runCatching {
+                controlPlane.fetchNodes(baseUrl)
+                    .filter {
+                        !it.wireGuardPublicKey.isNullOrBlank() &&
+                            it.wireGuardPort != null
+                    }
+                    .take(MAX_DIRECTORY_NODES)
+            }.onSuccess { nodes ->
+                if (
+                    !_state.value.isBoosting &&
+                    !_state.value.isTunnelConnecting &&
+                    nodes.isNotEmpty()
+                ) {
+                    _state.value = _state.value.copy(
+                        gatewayDirectory = nodes,
+                        gatewayDirectoryError = null,
+                    )
+                }
+            }
+        }
     }
 
     fun selectApp(app: BoostApp) {
