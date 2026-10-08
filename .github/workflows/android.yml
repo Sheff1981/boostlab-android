@@ -48,6 +48,9 @@ jobs:
       - name: Build and test
         run: gradle :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 
+      - name: Product safety regression guard
+        run: bash ci/check-product-safety.sh
+
       - name: Require stable signing on manual release
         if: github.event_name == 'workflow_dispatch' && env.BOOSTLAB_SIGNING_PASSWORD == ''
         run: |
