@@ -7,6 +7,7 @@ data class BoostState(
     val showAdvancedSettings: Boolean = false,
 
     val isGameLaunching: Boolean = false,
+    val gameLaunchedAtEpochMs: Long? = null,
     val gameLaunchError: String? = null,
     val gameBoostMessage: String = "Готов к запуску",
     val availableMemoryMb: Long? = null,
