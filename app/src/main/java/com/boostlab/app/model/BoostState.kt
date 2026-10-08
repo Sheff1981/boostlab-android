@@ -123,4 +123,8 @@ data class BoostState(
     val lastBoostPingMs: Int? = null,
     val lastBoostJitterMs: Int? = null,
     val lastBoostPacketLossPct: Double? = null,
+    val lastRouteGainMs: Int? = null,
+    val lastGameTrafficVerified: Boolean = false,
+    val lastRouteHealth: String? = null,
+    val lastRouteRecommendation: String? = null,
 )
