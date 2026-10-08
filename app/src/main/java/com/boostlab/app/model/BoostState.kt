@@ -61,6 +61,7 @@ data class BoostState(
     val gameTrafficVerified: Boolean = false,
     val routeHealth: String = "IDLE",
     val routeProbeFailures: Int = 0,
+    val liveProbeMode: String = "NORMAL",
 
     val clientPublicKey: String? = null,
     val identityError: String? = null,
