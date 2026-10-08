@@ -894,6 +894,36 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                         Modifier.weight(1f),
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricBox(
+                        "ROUTE RESULT",
+                        state.lastRouteGainMs?.let {
+                            when {
+                                it > 0 -> "−$it ms"
+                                it < 0 -> "+${-it} ms"
+                                else -> "0 ms"
+                            }
+                        } ?: "—",
+                        Modifier.weight(1f),
+                    )
+                    MetricBox(
+                        "GAME TRAFFIC",
+                        if (state.lastGameTrafficVerified) "VERIFIED" else "NOT VERIFIED",
+                        Modifier.weight(1f),
+                    )
+                    MetricBox(
+                        "LAST STATE",
+                        state.lastRouteHealth ?: "—",
+                        Modifier.weight(1f),
+                    )
+                }
+                Text(
+                    "Рекомендация последней сессии: ${state.lastRouteRecommendation ?: "—"}. " +
+                        "ROUTE RESULT — измеренная разница маршрутов, не обещание внутриигрового FPS.",
+                    color = HubMuted,
+                    fontSize = 10.sp,
+                )
             }
         }
         item {
