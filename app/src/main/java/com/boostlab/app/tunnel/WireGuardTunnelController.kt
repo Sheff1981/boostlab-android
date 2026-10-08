@@ -47,6 +47,30 @@ class WireGuardTunnelController(context: Context) {
         backend.setState(tunnel, Tunnel.State.DOWN, null)
     }
 
+    suspend fun disconnectVerified(): Tunnel.State {
+        withContext(Dispatchers.IO) {
+            backend.setState(tunnel, Tunnel.State.DOWN, null)
+        }
+
+        repeat(DISCONNECT_VERIFY_ATTEMPTS) { attempt ->
+            val current = state()
+            if (current == Tunnel.State.DOWN) {
+                return Tunnel.State.DOWN
+            }
+
+            if (attempt + 1 < DISCONNECT_VERIFY_ATTEMPTS) {
+                delay(DISCONNECT_VERIFY_POLL_MS)
+                withContext(Dispatchers.IO) {
+                    backend.setState(tunnel, Tunnel.State.DOWN, null)
+                }
+            }
+        }
+
+        throw IllegalStateException(
+            "WireGuard did not confirm DOWN state; system route restoration is not verified",
+        )
+    }
+
     suspend fun state(): Tunnel.State = withContext(Dispatchers.IO) {
         backend.getState(tunnel)
     }
@@ -93,5 +117,7 @@ class WireGuardTunnelController(context: Context) {
         private const val HANDSHAKE_ATTEMPTS = 16
         private const val HANDSHAKE_POLL_MS = 500L
         private const val CLOCK_SKEW_TOLERANCE_MS = 2_000L
+        private const val DISCONNECT_VERIFY_ATTEMPTS = 6
+        private const val DISCONNECT_VERIFY_POLL_MS = 250L
     }
 }
