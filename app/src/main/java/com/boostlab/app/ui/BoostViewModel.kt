@@ -223,6 +223,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             selectedApp = app,
             pinnedPackages = pinned,
             gameLaunchMode = gameProfileStore.load(app.packageName),
+            gameLaunchedAtEpochMs = null,
             gameLaunchError = null,
             gameBoostMessage = "Готов к запуску",
             tunnelError = null,
@@ -1041,11 +1042,26 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         gameBoostEngine.launch(selectedApp.packageName)
             .onSuccess {
+                val launchedAt = System.currentTimeMillis()
+                val boostActive = _state.value.isBoosting
                 _state.value = _state.value.copy(
                     isGameLaunching = false,
+                    gameLaunchedAtEpochMs = launchedAt,
                     gameLaunchError = null,
+                    gameTrafficVerified = if (boostActive) false else _state.value.gameTrafficVerified,
                     gameBoostMessage = GameLaunchAdvisor.message(readiness),
                 )
+
+                if (boostActive) {
+                    viewModelScope.launch {
+                        val traffic = runCatching {
+                            tunnelController.traffic(_state.value.wireGuardServerPublicKey)
+                        }.getOrNull()
+                        trafficBaselineRx = traffic?.rxBytes ?: 0L
+                        trafficBaselineTx = traffic?.txBytes ?: 0L
+                        debugLog("Game traffic baseline reset after app launch")
+                    }
+                }
             }
             .onFailure { error ->
                 _state.value = _state.value.copy(
@@ -2138,12 +2154,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         (it.txBytes - trafficBaselineTx).coerceAtLeast(0L)
                 } ?: 0L
                 val trafficVerifiedNow = transferredSinceConnect >= TRAFFIC_VERIFY_MIN_BYTES
+                val trafficVerified = _state.value.gameTrafficVerified || trafficVerifiedNow
+                val launchAgeMs = snapshot.gameLaunchedAtEpochMs?.let {
+                    (System.currentTimeMillis() - it).coerceAtLeast(0L)
+                }
+                val noGameTraffic = (
+                    !trafficVerified &&
+                        launchAgeMs != null &&
+                        launchAgeMs in NO_GAME_TRAFFIC_GRACE_MS..NO_GAME_TRAFFIC_TRACK_WINDOW_MS
+                    )
 
                 if (traffic != null && _state.value.isBoosting) {
                     _state.value = _state.value.copy(
                         tunnelRxBytes = traffic.rxBytes,
                         tunnelTxBytes = traffic.txBytes,
-                        gameTrafficVerified = _state.value.gameTrafficVerified || trafficVerifiedNow,
+                        gameTrafficVerified = trafficVerified,
                     )
                 }
 
@@ -2252,6 +2277,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             routeHealth = when {
                                 physicalNetworkChanged || mtuChanged -> "NETWORK_CHANGED"
                                 consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES -> "DEGRADED"
+                                noGameTraffic -> "NO_GAME_TRAFFIC"
                                 consecutiveDirectWins >= MAX_DIRECT_WIN_CYCLES -> "DIRECT_BETTER"
                                 verified && cachedGatewayToGame != null -> "GAME_ROUTE"
                                 verified -> "TRAFFIC"
@@ -2262,6 +2288,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                     "Сеть изменилась: ${snapshot.routeDecisionTransport} → $liveTransport · переподключи Boost"
                                 mtuChanged ->
                                     "MTU сети изменился · переподключи Boost"
+                                noGameTraffic ->
+                                    "VPN подключён, но трафик ${snapshot.selectedApp?.label ?: "игры"} не обнаружен"
                                 consecutiveDirectWins >= MAX_DIRECT_WIN_CYCLES &&
                                     gainMs != null &&
                                     gainMs < 0 ->
@@ -2774,6 +2802,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val LAN_AUTO_SAMPLES = 4
 
         private const val TRAFFIC_VERIFY_MIN_BYTES = 1_024L
+        private const val NO_GAME_TRAFFIC_GRACE_MS = 20_000L
+        private const val NO_GAME_TRAFFIC_TRACK_WINDOW_MS = 10L * 60L * 1000L
         private const val MAX_LIVE_PROBE_FAILURES = 3
         private const val SQUAD_SYNC_INTERVAL_MS = 3_000L
         private const val SQUAD_VOICE_SYNC_INTERVAL_MS = 750L
