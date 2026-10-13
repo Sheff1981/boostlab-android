@@ -54,6 +54,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1472,6 +1476,7 @@ private fun SquadPage(
 
 @Composable
 private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: PaddingValues) {
+    val context = LocalContext.current
     var customDnsInput by rememberSaveable { mutableStateOf("") }
 
     LazyColumn(
@@ -1612,6 +1617,19 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
                     color = HubMuted,
                     fontSize = 11.sp,
                 )
+                Spacer(Modifier.height(8.dp))
+                Text("Публичный ключ этого телефона", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(state.clientPublicKey ?: "Ключ ещё не создан", color = HubMuted, fontSize = 12.sp)
+                OutlinedButton(
+                    onClick = {
+                        state.clientPublicKey?.let { key ->
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("BOOSTLAB public key", key))
+                        }
+                    },
+                    enabled = !state.clientPublicKey.isNullOrBlank(),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Копировать публичный ключ телефона") }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = state.controlPlaneUrl,
