@@ -90,6 +90,26 @@ class ControlTests(unittest.TestCase):
         })
         self.assertEqual(status, 403)
 
+    def test_account_register_and_login(self):
+        status, account = self.request("/v1/accounts/register", {
+            "email": "test@example.com", "password": "SecurePass123"
+        })
+        self.assertEqual(status, 201)
+        self.assertTrue(account["account_id"])
+        status, result = self.request("/v1/accounts/login", {
+            "email": "test@example.com", "password": "SecurePass123"
+        })
+        self.assertEqual(status, 200)
+        self.assertTrue(result["session_token"])
+        status, _ = self.request("/v1/accounts/login", {
+            "email": "test@example.com", "password": "WrongPass123"
+        })
+        self.assertEqual(status, 401)
+        status, _ = self.request("/v1/accounts/register", {
+            "email": "test@example.com", "password": "SecurePass123"
+        })
+        self.assertEqual(status, 409)
+
     def test_expired_token_rejected(self):
         status, token_data = self.request("/admin/enrollment", {}, auth=True)
         with api.database() as conn:
