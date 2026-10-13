@@ -19,13 +19,34 @@ object RouteRacePolicy {
 
         if (eligible.isEmpty()) return emptyList()
 
+        val udp = eligible.filter {
+            it.probeTransport == GatewayAccessProbePolicy.UDP
+        }
+        val fallback = eligible.filter {
+            it.probeTransport != GatewayAccessProbePolicy.UDP
+        }
+
         val result = LinkedHashMap<String, GatewayNode>(limit + 1)
 
-        rememberedGatewayId
-            ?.let { remembered -> eligible.firstOrNull { it.node.id == remembered } }
-            ?.let { result[it.node.id] = it.node }
+        val remembered = rememberedGatewayId
+            ?.let { id -> eligible.firstOrNull { it.node.id == id } }
 
-        eligible.forEach { measurement ->
+        if (
+            remembered != null &&
+            (
+                remembered.probeTransport == GatewayAccessProbePolicy.UDP ||
+                    udp.size < limit
+                )
+        ) {
+            result[remembered.node.id] = remembered.node
+        }
+
+        udp.forEach { measurement ->
+            if (result.size >= limit) return@forEach
+            result.putIfAbsent(measurement.node.id, measurement.node)
+        }
+
+        fallback.forEach { measurement ->
             if (result.size >= limit) return@forEach
             result.putIfAbsent(measurement.node.id, measurement.node)
         }
