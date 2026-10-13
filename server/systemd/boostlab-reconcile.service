@@ -1,0 +1,12 @@
+[Unit]
+Description=BOOSTLAB expired VPN subscription reconciliation
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/boostlab/control.env
+ExecStart=/usr/bin/python3 /opt/boostlab/server/control_api.py --reconcile
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
