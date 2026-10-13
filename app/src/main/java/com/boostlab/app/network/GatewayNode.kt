@@ -19,4 +19,5 @@ data class GatewayMeasurement(
     val metrics: RouteMetrics,
     val score: Double,
     val capacityPenalty: Double = 0.0,
+    val probeTransport: String = GatewayAccessProbePolicy.UDP,
 )
