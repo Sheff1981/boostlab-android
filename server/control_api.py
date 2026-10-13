@@ -94,6 +94,15 @@ class Handler(BaseHTTPRequestHandler):
         return bool(ADMIN_TOKEN) and hmac.compare_digest(supplied, "Bearer " + ADMIN_TOKEN)
 
     def do_GET(self):
+        if self.path == "/admin":
+            html = Path(__file__).with_name("admin.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+            return
         if self.path == "/admin/summary":
             if not self.authorized():
                 self.respond(403, {"error": "forbidden"})
