@@ -957,6 +957,12 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     },
                     fontSize = 10.sp,
                 )
+                Text(
+                    "Качество маршрута: ${state.routeQualityLevel}" +
+                        (state.routeQualityReason?.let { " · $it" } ?: ""),
+                    color = if (state.routeHealth == "UNSTABLE") HubError else HubMuted,
+                    fontSize = 10.sp,
+                )
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = viewModel::probeGateway,
