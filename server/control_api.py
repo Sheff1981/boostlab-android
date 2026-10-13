@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 import subprocess
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from pathlib import Path
@@ -27,10 +28,14 @@ def database():
     conn = sqlite3.connect(DB)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""CREATE TABLE IF NOT EXISTS enrollments(
-        token_hash TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0)""")
+        token_hash TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0,
+        expires_at INTEGER NOT NULL DEFAULT 0""")
     conn.execute("""CREATE TABLE IF NOT EXISTS devices(
         device_id TEXT PRIMARY KEY, public_key TEXT UNIQUE NOT NULL,
         ip TEXT UNIQUE NOT NULL, enabled INTEGER NOT NULL DEFAULT 1)""")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(enrollments)")}
+    if "expires_at" not in cols:
+        conn.execute("ALTER TABLE enrollments ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     return conn
 
@@ -91,7 +96,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             token = secrets.token_urlsafe(32)
             with LOCK, database() as conn:
-                conn.execute("INSERT INTO enrollments(token_hash) VALUES(?)", (hash_token(token),))
+                conn.execute("INSERT INTO enrollments(token_hash, expires_at) VALUES(?,?)",
+                             (hash_token(token), int(time.time()) + 600))
                 conn.commit()
             self.respond(201, {"enrollment_token": token})
             return
@@ -110,8 +116,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(503, {"error": "gateway_unconfigured"})
                 return
             with LOCK, database() as conn:
-                row = conn.execute("SELECT used FROM enrollments WHERE token_hash=?", (hash_token(token),)).fetchone()
-                if row is None or row[0]:
+                row = conn.execute("SELECT used, expires_at FROM enrollments WHERE token_hash=?", (hash_token(token),)).fetchone()
+                if row is None or row[0] or row[1] <= int(time.time()):
                     self.respond(403, {"error": "invalid_enrollment"})
                     return
                 allocated = {row[0] for row in conn.execute("SELECT ip FROM devices")}
