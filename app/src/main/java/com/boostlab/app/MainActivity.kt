@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
@@ -21,8 +22,14 @@ class MainActivity : ComponentActivity() {
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        if (result.resultCode == RESULT_OK) {
+        if (result.resultCode == RESULT_OK && VpnService.prepare(this) == null) {
             viewModel.connectTunnel()
+        } else {
+            Toast.makeText(
+                this,
+                "Android не разрешил VPN. Проверьте другой активный VPN и разрешение BOOSTLAB в настройках.",
+                Toast.LENGTH_LONG,
+            ).show()
         }
     }
 
