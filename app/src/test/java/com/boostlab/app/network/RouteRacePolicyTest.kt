@@ -9,6 +9,7 @@ class RouteRacePolicyTest {
         score: Double,
         median: Int,
         received: Int = 3,
+        probeTransport: String = GatewayAccessProbePolicy.UDP,
     ): GatewayMeasurement {
         return GatewayMeasurement(
             node = GatewayNode(
@@ -29,6 +30,7 @@ class RouteRacePolicyTest {
                 p95RttMs = median + 3,
             ),
             score = score,
+            probeTransport = probeTransport,
         )
     }
 
@@ -78,3 +80,50 @@ class RouteRacePolicyTest {
         assertEquals(listOf("a", "b"), result.map { it.id })
     }
 }
+
+
+    @Test
+    fun prefersUdpFinalistsOverFasterHttpsFallback() {
+        val result = RouteRacePolicy.shortlist(
+            quickMeasurements = listOf(
+                measurement(
+                    "https-fast",
+                    5.0,
+                    5,
+                    probeTransport = GatewayAccessProbePolicy.HTTPS_FALLBACK,
+                ),
+                measurement("udp-a", 20.0, 20),
+                measurement("udp-b", 21.0, 21),
+                measurement("udp-c", 22.0, 22),
+            ),
+            rememberedGatewayId = null,
+            limit = 3,
+        )
+
+        assertEquals(listOf("udp-a", "udp-b", "udp-c"), result.map { it.id })
+    }
+
+    @Test
+    fun usesHttpsFallbackWhenThereAreNotEnoughUdpCandidates() {
+        val result = RouteRacePolicy.shortlist(
+            quickMeasurements = listOf(
+                measurement("udp-a", 20.0, 20),
+                measurement(
+                    "https-a",
+                    30.0,
+                    30,
+                    probeTransport = GatewayAccessProbePolicy.HTTPS_FALLBACK,
+                ),
+                measurement(
+                    "https-b",
+                    31.0,
+                    31,
+                    probeTransport = GatewayAccessProbePolicy.HTTPS_FALLBACK,
+                ),
+            ),
+            rememberedGatewayId = null,
+            limit = 3,
+        )
+
+        assertEquals(listOf("udp-a", "https-a", "https-b"), result.map { it.id })
+    }
