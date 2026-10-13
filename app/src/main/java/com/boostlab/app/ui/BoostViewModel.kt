@@ -1027,6 +1027,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
     fun boostAndLaunchGame() {
         val snapshot = _state.value
+        // Fail closed: BOOSTLAB must never launch a game without its own verified VPN.
+        if (!snapshot.isBoosting || snapshot.isTunnelConnecting) {
+            _state.value = snapshot.copy(
+                gameLaunchError = "Сначала подключи VPN BOOSTLAB",
+                gameBoostMessage = "Запуск заблокирован: VPN не подключён",
+            )
+            return
+        }
         if (snapshot.isGameLaunching) return
 
         val selectedApp = snapshot.selectedApp
@@ -2047,9 +2055,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     debugLog("Network Boost: handshake подтверждён · " + snapshot.gatewayHost)
                     startLiveMetrics()
-                    if (_state.value.autoLaunchAfterNetworkBoost) {
-                        boostAndLaunchGame()
-                    }
+                    // BOOST is a single action: verified VPN first, then launch the game.
+                    boostAndLaunchGame()
                 } else {
                     stopLiveMetrics()
                 }
