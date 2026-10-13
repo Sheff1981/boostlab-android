@@ -966,6 +966,9 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                             "DISCONNECT_FAILED",
                             "VPN_CONFLICT",
                             "NO_GAME_TRAFFIC",
+                            "UNSTABLE",
+                            "CONNECT_TIMEOUT",
+                            "OFFLINE",
                         )
                     ) {
                         HubError
@@ -983,6 +986,22 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     },
                     fontSize = 10.sp,
                 )
+                Text(
+                    "Доступ до Gateway: ${state.gatewayProbeTransport}",
+                    color = if (state.gatewayProbeTransport == "HTTPS_FALLBACK") {
+                        HubCyan
+                    } else {
+                        HubMuted
+                    },
+                    fontSize = 10.sp,
+                )
+                if (state.gatewayProbeTransport == "HTTPS_FALLBACK") {
+                    Text(
+                        "UDP probe отфильтрован сетью. HTTPS используется только как резервная проверка доступности; это не UDP и не внутриигровой ping.",
+                        color = HubMuted,
+                        fontSize = 10.sp,
+                    )
+                }
                 Text(
                     "Качество маршрута: ${state.routeQualityLevel}" +
                         (state.routeQualityReason?.let { " · $it" } ?: ""),
