@@ -65,6 +65,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.boostlab.app.data.InstalledAppOrdering
 import com.boostlab.app.model.BoostApp
 import com.boostlab.app.model.BoostState
 import com.boostlab.app.model.CatalogGame
@@ -598,9 +599,11 @@ private fun BoostPage(
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var confirmDisconnect by remember { mutableStateOf(false) }
-    val pinned = viewModel.apps.filter { it.packageName in state.pinnedPackages }
-    val visible = (if (pinned.isNotEmpty()) pinned else viewModel.apps)
-        .filter { query.isBlank() || it.label.contains(query, true) }
+    val visible = InstalledAppOrdering.visibleApps(
+        apps = viewModel.apps,
+        pinnedPackages = state.pinnedPackages,
+        query = query,
+    )
 
     if (confirmDisconnect) {
         AlertDialog(
