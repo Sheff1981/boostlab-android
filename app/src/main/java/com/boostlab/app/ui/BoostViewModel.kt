@@ -1704,9 +1704,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         "BOOST" -> {
                             val gain = selection.gainMs
                             if (gain != null && gain > 0) {
-                                "BEST ROUTE: ${gateway.node.region} · −${gain} ms"
+                                "Маршрут выбран: ${gateway.node.region} · оценка −${gain} ms"
                             } else {
-                                "BEST ROUTE: ${gateway.node.region} · ${gateway.node.id}"
+                                "Маршрут выбран: ${gateway.node.region} · ${gateway.node.id}"
                             }
                         }
                         else -> "Автовыбор: ${gateway.node.region} · ${gateway.node.id}"
@@ -2485,10 +2485,13 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                     "DIRECT теперь быстрее · BOOST +${-gainMs} ms"
                                 unstableRoute ->
                                     "Маршрут нестабилен · ${routeQuality.reason ?: routeQuality.level}"
-                                gainMs != null &&
+                                verified &&
+                                    gainMs != null &&
                                     gainMs > 0 &&
                                     snapshot.routeRecommendation == "BOOST" ->
                                     "BEST ROUTE: ${snapshot.selectedGatewayRegion ?: "Gateway"} · −$gainMs ms"
+                                !verified && snapshot.routeRecommendation == "BOOST" ->
+                                    "Маршрут подключён · ждём трафик выбранной игры"
                                 else -> _state.value.serverLabel
                             },
                         )
