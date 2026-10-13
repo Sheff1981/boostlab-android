@@ -397,6 +397,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         val settings = userSettingsStore.load().copy(autoSelectBestNode = false)
         userSettingsStore.save(settings)
+        val selectionReadiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
         _state.value = snapshot.copy(
             autoSelectBestNode = false,
             routeSelectorVisible = false,
@@ -408,6 +409,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             selectedGatewayRegion = node.region,
             selectedRouteApiUrl = node.routeApiUrl,
             routeRecommendation = "GATEWAY_ONLY",
+            routeDecisionTransport = selectionReadiness?.networkTransport ?: snapshot.networkTransport,
+            routeDecisionAtEpochMs = System.currentTimeMillis(),
             pingMs = snapshot.gatewayDirectoryPingMs[node.id],
             p95PingMs = null,
             jitterMs = null,
@@ -1750,21 +1753,58 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             runCatching {
-                routeProbe.measure(
-                    host = _state.value.gatewayHost,
-                    port = _state.value.gatewayPort,
+                val snapshot = _state.value
+                val accessMetrics = routeProbe.measure(
+                    host = snapshot.gatewayHost,
+                    port = snapshot.gatewayPort,
                 )
-            }.onSuccess { metrics ->
+                val manualValidation = validateManualGatewayRoute(
+                    snapshot = snapshot,
+                    accessMetrics = accessMetrics,
+                )
+                accessMetrics to manualValidation
+            }.onSuccess { (metrics, validation) ->
+                val direct = validation?.directMetrics
+                val boosted = validation?.boostedMetrics
+                val gain = validation?.gainMs
                 _state.value = _state.value.copy(
                     isProbing = false,
-                    pingMs = metrics.medianRttMs,
-                    p95PingMs = metrics.p95RttMs,
-                    jitterMs = metrics.jitterMs,
-                    packetLossPct = metrics.packetLossPct,
-                    serverLabel = if (metrics.received > 0) {
-                        "Сервер отвечает: ${metrics.received}/${metrics.sent}"
-                    } else {
-                        "Сервер не отвечает"
+                    routeRecommendation = validation?.recommendation ?: "GATEWAY_ONLY",
+                    routeTargetId = validation?.target?.id,
+                    routeTargetHost = validation?.target?.host,
+                    routeTargetPort = validation?.target?.tcpPort,
+                    directPingMs = direct?.medianRttMs,
+                    directP95Ms = direct?.p95RttMs,
+                    directJitterMs = direct?.jitterMs,
+                    directPacketLossPct = direct?.packetLossPct,
+                    boostedEstimatedPingMs = boosted?.medianRttMs,
+                    boostedEstimatedP95Ms = boosted?.p95RttMs,
+                    routeGainMs = gain,
+                    routeCandidatesTested = validation?.candidatesTested ?: 0,
+                    pingMs = boosted?.medianRttMs ?: metrics.medianRttMs,
+                    p95PingMs = boosted?.p95RttMs ?: metrics.p95RttMs,
+                    jitterMs = boosted?.jitterMs ?: metrics.jitterMs,
+                    packetLossPct = boosted?.packetLossPct ?: metrics.packetLossPct,
+                    serverLabel = when (validation?.recommendation) {
+                        "MANUAL_BETTER" -> {
+                            if (gain != null && gain > 0) {
+                                "Ручной Gateway улучшает маршрут · −$gain ms"
+                            } else {
+                                "Ручной Gateway подтверждён полным тестом"
+                            }
+                        }
+                        "MANUAL_WORSE" -> {
+                            if (gain != null && gain < 0) {
+                                "Ручной Gateway хуже DIRECT · +${-gain} ms"
+                            } else {
+                                "DIRECT не хуже ручного Gateway"
+                            }
+                        }
+                        else -> if (metrics.received > 0) {
+                            "Gateway отвечает: ${metrics.received}/${metrics.sent} · игровой target недоступен"
+                        } else {
+                            "Gateway не отвечает"
+                        }
                     },
                     probeError = null,
                 )
@@ -2788,6 +2828,95 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         return false
     }
 
+    private suspend fun validateManualGatewayRoute(
+        snapshot: BoostState,
+        accessMetrics: com.boostlab.app.network.RouteMetrics,
+    ): AutoRouteSelection? {
+        if (snapshot.autoSelectBestNode) return null
+        if (accessMetrics.received <= 0 || accessMetrics.medianRttMs == null) return null
+
+        val packageName = snapshot.selectedApp?.packageName
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val routeApiUrl = snapshot.selectedRouteApiUrl
+            ?.takeIf { it.startsWith("https://") }
+            ?: return null
+        if (!snapshot.controlPlaneUrl.startsWith("https://")) return null
+
+        val node = snapshot.gatewayDirectory.firstOrNull {
+            it.id == snapshot.selectedGatewayId
+        } ?: return null
+
+        val targets = runCatching {
+            controlPlane.fetchRouteTargets(snapshot.controlPlaneUrl, packageName)
+        }.getOrDefault(emptyList())
+        if (targets.isEmpty()) return null
+
+        val directMeasurements = coroutineScope {
+            targets.map { target ->
+                async {
+                    runCatching {
+                        target to directRouteProbe.measure(
+                            host = target.host,
+                            port = target.tcpPort,
+                            samples = MANUAL_ROUTE_SAMPLES,
+                        )
+                    }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
+        }.filter { (_, metrics) ->
+            metrics.received > 0 && routeScore(metrics, snapshot.boostMode).isFinite()
+        }
+        val directByTarget = directMeasurements.associate { (target, metrics) ->
+            target.id to metrics
+        }
+        if (directByTarget.isEmpty()) return null
+
+        val candidates = coroutineScope {
+            targets.mapNotNull { target ->
+                if (directByTarget[target.id] == null) return@mapNotNull null
+                async {
+                    runCatching {
+                        val remote = gatewayRouteQuality.fetch(
+                            routeApiUrl = routeApiUrl,
+                            target = target,
+                        )
+                        if (
+                            remote.metrics.received <= 0 ||
+                            remote.metrics.medianRttMs == null
+                        ) {
+                            return@runCatching null
+                        }
+                        RouteIntelligence.buildCandidate(
+                            node = node,
+                            target = target,
+                            directByTarget = directByTarget,
+                            phoneToGatewayMetrics = accessMetrics,
+                            gatewayToGameMetrics = remote.metrics,
+                            scorer = { metrics -> routeScore(metrics, snapshot.boostMode) },
+                        )
+                    }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
+        }
+        val best = candidates.minByOrNull { it.boostedScore } ?: return null
+        val improves = RouteIntelligence.shouldUseBoost(best, snapshot.boostMode)
+
+        return AutoRouteSelection(
+            gateway = GatewayMeasurement(
+                node = best.node,
+                metrics = best.boostedMetrics,
+                score = best.boostedScore,
+            ),
+            recommendation = if (improves) "MANUAL_BETTER" else "MANUAL_WORSE",
+            target = best.target,
+            directMetrics = best.directMetrics,
+            boostedMetrics = best.boostedMetrics,
+            gainMs = best.gainMs,
+            candidatesTested = candidates.size,
+        )
+    }
+
     private suspend fun tryWarmRememberedRoute(
         snapshot: BoostState,
         node: GatewayNode,
@@ -3053,6 +3182,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_DIRECT_MESSAGES = 100
         private const val MAX_PENDING_VOICE_ICE = 64
         private const val DIRECT_ROUTE_SAMPLES = 7
+        private const val MANUAL_ROUTE_SAMPLES = 5
 
         private const val MAX_ROUTE_DECISION_AGE_MS = 2L * 60L * 1000L
         private const val ROUTE_REGRESSION_MS = 10
