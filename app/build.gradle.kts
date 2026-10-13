@@ -11,8 +11,9 @@ android {
         applicationId = "com.boostlab.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        // CI run numbers increase on each build, enabling in-place upgrades with the same signing key.
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
+        versionName = "0.1.0-dev." + versionCode
     }
     signingConfigs {
         create("distribution") {
