@@ -98,6 +98,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             var selected by remember { mutableStateOf<String?>(null) }
             var status by remember { mutableStateOf("VPN не настроен") }
+            val sessionPrefs = remember { getSharedPreferences("boostlab_account", MODE_PRIVATE) }
+            var sessionToken by remember { mutableStateOf(sessionPrefs.getString("session_token", null)) }
+            var sessionEmail by remember { mutableStateOf(sessionPrefs.getString("email", "") ?: "") }
+            var sessionAccountId by remember { mutableStateOf(sessionPrefs.getString("account_id", "") ?: "") }
             var accountScreen by remember { mutableStateOf(false) }
             var accountEmail by remember { mutableStateOf("") }
             var accountPassword by remember { mutableStateOf("") }
@@ -115,6 +119,31 @@ class MainActivity : ComponentActivity() {
                         Text(if (accountScreen) "Вернуться к играм" else "Аккаунт / Регистрация")
                     }
                     if (accountScreen) {
+                        if (sessionToken != null) {
+                            Text("Личный кабинет", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                            Text("Email: $sessionEmail", color = Color.White)
+                            Text("ID: $sessionAccountId", color = Color.LightGray)
+                            Button(onClick = {
+                                val token = sessionToken ?: return@Button
+                                accountBusy = true
+                                Thread {
+                                    try {
+                                        AccountApi.authenticated("/v1/accounts/logout", token, "POST")
+                                        runOnUiThread {
+                                            sessionPrefs.edit().clear().apply()
+                                            sessionToken = null
+                                            sessionEmail = ""
+                                            sessionAccountId = ""
+                                            accountMessage = "Вы вышли из аккаунта"
+                                            accountBusy = false
+                                        }
+                                    } catch (e: Exception) {
+                                        runOnUiThread { accountMessage = "Не удалось завершить сессию: ${e.message}"; accountBusy = false }
+                                    }
+                                }.start()
+                            }, enabled = !accountBusy) { Text("Выйти") }
+                            Text(accountMessage, color = cyan)
+                        } else {
                         Text(if (isRegistering) "Создать аккаунт" else "Войти", color = Color.White,
                             style = MaterialTheme.typography.titleLarge)
                         Spacer(Modifier.height(12.dp))
@@ -136,6 +165,16 @@ class MainActivity : ComponentActivity() {
                                         runOnUiThread {
                                             accountMessage = if (isRegistering) "Аккаунт создан. Теперь войди."
                                                 else "Вход выполнен. ID: " + result.getString("account_id").take(8)
+                                            if (!isRegistering) {
+                                                val token = result.getString("session_token")
+                                                val accountId = result.getString("account_id")
+                                                sessionPrefs.edit().putString("session_token", token)
+                                                    .putString("account_id", accountId)
+                                                    .putString("email", accountEmail.trim()).apply()
+                                                sessionToken = token
+                                                sessionAccountId = accountId
+                                                sessionEmail = accountEmail.trim()
+                                            }
                                             accountPassword = ""
                                             if (isRegistering) isRegistering = false
                                             accountBusy = false
@@ -154,6 +193,7 @@ class MainActivity : ComponentActivity() {
                             Text(if (isRegistering) "Уже есть аккаунт? Войти" else "Нет аккаунта? Зарегистрироваться")
                         }
                         Text(accountMessage, color = cyan)
+                        }
                     } else {
                     Spacer(Modifier.height(20.dp))
                     Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(18.dp)) {
