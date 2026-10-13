@@ -1,0 +1,10 @@
+[Unit]
+Description=Check BOOSTLAB VPN subscriptions every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=boostlab-reconcile.service
+
+[Install]
+WantedBy=timers.target
