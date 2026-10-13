@@ -26,3 +26,27 @@ if grep -R -n -E --include='*.kt' --include='*.java'   '(increase FPS|boost FPS|
 fi
 
 echo "BOOSTLAB product-safety claims check passed"
+
+
+# BOOSTLAB must leave Android networking normal after the VPN is stopped or uninstalled.
+# Persistent proxy/DNS/secure-setting mutation is forbidden; routing must live inside VpnService.
+forbidden_persistent_network_apis=(
+  "Settings.Global.put"
+  "Settings.Secure.put"
+  "Settings.System.put"
+  "WRITE_SECURE_SETTINGS"
+  "WRITE_SETTINGS"
+  "setGlobalProxy"
+  "global_http_proxy"
+  "private_dns_mode"
+  "private_dns_specifier"
+)
+
+for api in "${forbidden_persistent_network_apis[@]}"; do
+  if grep -R -n --include='*.kt' --include='*.java' --include='AndroidManifest.xml' "$api" app/src; then
+    echo "Forbidden persistent network/system mutation detected: $api" >&2
+    exit 1
+  fi
+done
+
+echo "BOOSTLAB persistent-network safety check passed"
