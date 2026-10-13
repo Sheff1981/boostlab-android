@@ -79,8 +79,6 @@ class RouteRacePolicyTest {
 
         assertEquals(listOf("a", "b"), result.map { it.id })
     }
-}
-
 
     @Test
     fun prefersUdpFinalistsOverFasterHttpsFallback() {
@@ -127,3 +125,4 @@ class RouteRacePolicyTest {
 
         assertEquals(listOf("udp-a", "https-a", "https-b"), result.map { it.id })
     }
+}
