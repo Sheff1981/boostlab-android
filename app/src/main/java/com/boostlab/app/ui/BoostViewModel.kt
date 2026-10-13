@@ -40,6 +40,7 @@ import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
 import com.boostlab.app.network.GameRouteTarget
 import com.boostlab.app.network.LanGatewayDiscovery
+import com.boostlab.app.network.NetworkEligibilityPolicy
 import com.boostlab.app.network.PinnedReconnectPolicy
 import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteRacePolicy
@@ -1286,11 +1287,20 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val readiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
-        if (readiness?.vpnActive == true) {
+        val networkEligibility = NetworkEligibilityPolicy.evaluate(
+            networkValidated = readiness?.networkValidated,
+            networkTransport = readiness?.networkTransport,
+            vpnActive = readiness?.vpnActive == true,
+        )
+        if (!networkEligibility.allowed) {
             _state.value = current.copy(
-                externalVpnDetected = true,
-                probeError = "Отключи другой VPN перед проверкой маршрута",
-                serverLabel = "Конфликт VPN",
+                externalVpnDetected = readiness?.vpnActive == true,
+                probeError = networkEligibility.reason,
+                serverLabel = if (readiness?.vpnActive == true) {
+                    "Конфликт VPN"
+                } else {
+                    "Интернет не подтверждён"
+                },
             )
             return
         }
@@ -1839,10 +1849,20 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val connectReadiness = runCatching { gameBoostEngine.inspect() }.getOrNull()
-        if (connectReadiness?.vpnActive == true) {
+        val connectEligibility = NetworkEligibilityPolicy.evaluate(
+            networkValidated = connectReadiness?.networkValidated,
+            networkTransport = connectReadiness?.networkTransport,
+            vpnActive = connectReadiness?.vpnActive == true,
+        )
+        if (!connectEligibility.allowed) {
             _state.value = snapshot.copy(
-                externalVpnDetected = true,
-                tunnelError = "Отключи другой VPN перед запуском BOOSTLAB",
+                externalVpnDetected = connectReadiness?.vpnActive == true,
+                tunnelError = connectEligibility.reason,
+                routeHealth = if (connectReadiness?.vpnActive == true) {
+                    "VPN_CONFLICT"
+                } else {
+                    "OFFLINE"
+                },
             )
             return
         }
