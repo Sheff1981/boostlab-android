@@ -138,6 +138,36 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(201, {"enrollment_token": token})
             return
 
+        if self.path == "/admin/device/access":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            try:
+                payload = self.body()
+                device_id, enabled = payload["device_id"], payload["enabled"]
+                if not isinstance(device_id, str) or type(enabled) is not bool:
+                    raise ValueError("invalid_input")
+                with LOCK, database() as conn:
+                    row = conn.execute("SELECT public_key, ip, expires_at FROM devices WHERE device_id=?", (device_id,)).fetchone()
+                    if row is None:
+                        self.respond(404, {"error": "not_found"})
+                        return
+                    if enabled and row[2] <= int(time.time()):
+                        self.respond(409, {"error": "subscription_expired"})
+                        return
+                    if enabled:
+                        add_peer(row[0], row[1])
+                    else:
+                        subprocess.run(["wg", "set", WG_INTERFACE, "peer", row[0], "remove"],
+                                       check=True, capture_output=True, timeout=10)
+                    conn.execute("UPDATE devices SET enabled=? WHERE device_id=?", (int(enabled), device_id))
+                    conn.commit()
+                self.respond(200, {"device_id": device_id, "enabled": enabled})
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            except (subprocess.SubprocessError, OSError):
+                self.respond(503, {"error": "wireguard_failed"})
+            return
         if self.path == "/admin/subscription":
             if not self.authorized():
                 self.respond(403, {"error": "forbidden"})
