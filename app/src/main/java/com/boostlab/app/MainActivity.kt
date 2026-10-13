@@ -98,12 +98,63 @@ class MainActivity : ComponentActivity() {
         setContent {
             var selected by remember { mutableStateOf<String?>(null) }
             var status by remember { mutableStateOf("VPN не настроен") }
+            var accountScreen by remember { mutableStateOf(false) }
+            var accountEmail by remember { mutableStateOf("") }
+            var accountPassword by remember { mutableStateOf("") }
+            var accountMessage by remember { mutableStateOf("") }
+            var isRegistering by remember { mutableStateOf(true) }
+            var accountBusy by remember { mutableStateOf(false) }
             SideEffect { updateStatus = { status = it } }
             MaterialTheme(colorScheme = darkColorScheme(primary = cyan, background = night, surface = panel)) {
                 Column(Modifier.fillMaxSize().background(night).padding(18.dp)) {
                     Text("BOOSTLAB", style = MaterialTheme.typography.headlineLarge, color = Color.White, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Text("Выбери игру и подключись через VPN", color = Color.LightGray)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(onClick = { accountScreen = !accountScreen }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (accountScreen) "Вернуться к играм" else "Аккаунт / Регистрация")
+                    }
+                    if (accountScreen) {
+                        Text(if (isRegistering) "Создать аккаунт" else "Войти", color = Color.White,
+                            style = MaterialTheme.typography.titleLarge)
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedTextField(value = accountEmail, onValueChange = { accountEmail = it },
+                            label = { Text("Email") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedTextField(value = accountPassword, onValueChange = { accountPassword = it },
+                            label = { Text("Пароль") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                        Text("От 8 символов: заглавная и строчная буква, цифра", color = Color.LightGray)
+                        Button(enabled = !accountBusy && accountEmail.isNotBlank() && accountPassword.isNotBlank(),
+                            onClick = {
+                                accountBusy = true
+                                accountMessage = "Подключение к серверу…"
+                                val path = if (isRegistering) "/v1/accounts/register" else "/v1/accounts/login"
+                                Thread {
+                                    try {
+                                        val result = AccountApi.request(path, accountEmail.trim(), accountPassword)
+                                        runOnUiThread {
+                                            accountMessage = if (isRegistering) "Аккаунт создан. Теперь войди."
+                                                else "Вход выполнен. ID: " + result.getString("account_id").take(8)
+                                            accountPassword = ""
+                                            if (isRegistering) isRegistering = false
+                                            accountBusy = false
+                                        }
+                                    } catch (e: Exception) {
+                                        runOnUiThread {
+                                            accountMessage = "Ошибка подключения или регистрации: " + (e.message ?: "Неизвестная ошибка")
+                                            accountBusy = false
+                                        }
+                                    }
+                                }.start()
+                            }, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (isRegistering) "Зарегистрироваться" else "Войти")
+                        }
+                        TextButton(onClick = { isRegistering = !isRegistering; accountMessage = "" }) {
+                            Text(if (isRegistering) "Уже есть аккаунт? Войти" else "Нет аккаунта? Зарегистрироваться")
+                        }
+                        Text(accountMessage, color = cyan)
+                    } else {
                     Spacer(Modifier.height(20.dp))
                     Card(colors = CardDefaults.cardColors(containerColor = panel), shape = RoundedCornerShape(18.dp)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
@@ -138,6 +189,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
