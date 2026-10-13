@@ -43,6 +43,7 @@ import com.boostlab.app.network.LanGatewayDiscovery
 import com.boostlab.app.network.PinnedReconnectPolicy
 import com.boostlab.app.network.RouteDecisionPolicy
 import com.boostlab.app.network.RouteRacePolicy
+import com.boostlab.app.network.RouteQualityPolicy
 import com.boostlab.app.network.RouteScorer
 import com.boostlab.app.network.SquadApiClient
 import com.boostlab.app.network.UdpRouteProbe
@@ -2112,6 +2113,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         liveMetricsJob = viewModelScope.launch {
             var consecutiveProbeFailures = 0
             var consecutiveDirectWins = 0
+            var consecutiveBadRouteQuality = 0
             var intelligenceCycle = 0
             var cachedGatewayToGame: com.boostlab.app.network.RouteMetrics? = null
             var cachedDirectToGame: com.boostlab.app.network.RouteMetrics? = null
@@ -2162,6 +2164,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             if (restored) {
                                 consecutiveProbeFailures = 0
                                 consecutiveDirectWins = 0
+                                consecutiveBadRouteQuality = 0
                                 continue
                             }
                         }
@@ -2303,6 +2306,20 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         snapshot.routeGainMs
                     }
 
+                    val routeQuality = RouteQualityPolicy.assess(endToEndMetrics)
+                    consecutiveBadRouteQuality = if (
+                        RouteQualityPolicy.isBad(routeQuality.level)
+                    ) {
+                        consecutiveBadRouteQuality + 1
+                    } else {
+                        0
+                    }
+                    val unstableRoute = (
+                        routeQuality.level == "SEVERE" ||
+                            routeQuality.level == "UNREACHABLE" ||
+                            consecutiveBadRouteQuality >= BAD_ROUTE_QUALITY_CYCLES
+                        )
+
                     if (routeMetricsRefreshed && intelligenceReady) {
                         consecutiveDirectWins = if (
                             gainMs != null &&
@@ -2335,11 +2352,14 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             powerSaveMode = liveReadiness?.powerSaveMode ?: _state.value.powerSaveMode,
                             thermalStatus = liveReadiness?.thermalStatus ?: _state.value.thermalStatus,
                             liveProbeMode = probeBudget.label,
+                            routeQualityLevel = routeQuality.level,
+                            routeQualityReason = routeQuality.reason,
                             routeHealth = when {
                                 physicalNetworkChanged || mtuChanged -> "NETWORK_CHANGED"
                                 consecutiveProbeFailures >= MAX_LIVE_PROBE_FAILURES -> "DEGRADED"
                                 noGameTraffic -> "NO_GAME_TRAFFIC"
                                 consecutiveDirectWins >= MAX_DIRECT_WIN_CYCLES -> "DIRECT_BETTER"
+                                unstableRoute -> "UNSTABLE"
                                 verified && cachedGatewayToGame != null -> "GAME_ROUTE"
                                 verified -> "TRAFFIC"
                                 else -> "CONNECTED"
@@ -2355,6 +2375,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                     gainMs != null &&
                                     gainMs < 0 ->
                                     "DIRECT теперь быстрее · BOOST +${-gainMs} ms"
+                                unstableRoute ->
+                                    "Маршрут нестабилен · ${routeQuality.reason ?: routeQuality.level}"
                                 gainMs != null &&
                                     gainMs > 0 &&
                                     snapshot.routeRecommendation == "BOOST" ->
@@ -3014,6 +3036,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val MAX_ROUTE_DECISION_AGE_MS = 2L * 60L * 1000L
         private const val ROUTE_REGRESSION_MS = 10
         private const val MAX_DIRECT_WIN_CYCLES = 3
+        private const val BAD_ROUTE_QUALITY_CYCLES = 2
         private const val DEVICE_SESSION_REFRESH_MARGIN_MS = 30_000L
         private const val LIVE_MTU_DRIFT_THRESHOLD = 40
         private const val GATEWAY_FAILURE_COOLDOWN_MS = 120_000L
