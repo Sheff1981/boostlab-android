@@ -604,6 +604,10 @@ private fun BoostPage(
         pinnedPackages = state.pinnedPackages,
         query = query,
     )
+    val serverConfigured =
+        state.controlPlaneUrl.startsWith("https://") ||
+            state.gatewayHost.isNotBlank()
+
 
     if (confirmDisconnect) {
         AlertDialog(
@@ -627,91 +631,103 @@ private fun BoostPage(
     ) {
         item { PageHeader("Локальный Буст", "Выбери игру → BOOST → запуск") }
         item { NetworkHero(state) }
-        item {
-            Panel {
-                Text("Анализ маршрута", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(
-                    when (state.routeRecommendation) {
-                        "BOOST" -> "BOOST даёт лучший маршрут"
-                        "DIRECT" -> "DIRECT уже быстрее — VPN не нужен"
-                        "MANUAL_BETTER" -> "Выбранный вручную Gateway улучшает маршрут"
-                        "MANUAL_WORSE" -> "Выбранный Gateway хуже или не лучше DIRECT"
-                        "GATEWAY_ONLY" -> "Пока оцениваем только доступ до Gateway"
-                        else -> "Выбери игру и запусти проверку маршрута"
-                    },
-                    color = when (state.routeRecommendation) {
-                        "BOOST", "MANUAL_BETTER" -> HubMint
-                        "DIRECT" -> HubCyan
-                        "MANUAL_WORSE" -> HubError
-                        else -> HubMuted
-                    },
-                    fontSize = 12.sp,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MetricBox(
-                        "ПРЯМОЙ",
-                        state.directPingMs?.let { "$it ms" } ?: "—",
-                        Modifier.weight(1f),
-                    )
-                    MetricBox(
-                        "ЧЕРЕЗ BOOST",
-                        state.boostedEstimatedPingMs?.let { "$it ms" } ?: "—",
-                        Modifier.weight(1f),
-                    )
-                    MetricBox(
-                        "ВЫИГРЫШ",
-                        state.routeGainMs?.let {
-                            when {
-                                it > 0 -> "−$it ms"
-                                it < 0 -> "+${-it} ms"
-                                else -> "0 ms"
-                            }
-                        } ?: "—",
-                        Modifier.weight(1f),
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "p95: Direct ${state.directP95Ms?.let { "$it ms" } ?: "—"} · " +
-                        "Boost ${state.boostedEstimatedP95Ms?.let { "$it ms" } ?: "—"}",
-                    color = HubMuted,
-                    fontSize = 11.sp,
-                )
-                Text(
-                    "Target: ${state.routeTargetId ?: "не задан"} · проверено маршрутов: ${state.routeCandidatesTested}",
-                    color = HubMuted,
-                    fontSize = 10.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    if (state.routeTargetId != null) {
-                        "Это измерение сетевого маршрута. Ping внутри самой игры может отличаться."
-                    } else {
-                        "Без игрового target показываем только RTT до Gateway — это не игровой ping."
-                    },
-                    color = HubMuted,
-                    fontSize = 10.sp,
+        if (!serverConfigured) {
+            item {
+                InfoCard(
+                    "Локальный режим без Gateway",
+                    "Можно выбрать и запустить игру, проверить RAM, нагрев, сеть и MTU. " +
+                        "Сетевой маршрут и VPN-буст появятся автоматически после подключения сервера BOOSTLAB.",
                 )
             }
         }
-        item {
-            Panel {
-                Text("Режим ускорения", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SelectChip("Умный", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
-                    SelectChip("Низкий ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
-                    SelectChip("Стабильный", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
+        if (serverConfigured) {
+            item {
+                Panel {
+                    Text("Анализ маршрута", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(
+                        when (state.routeRecommendation) {
+                            "BOOST" -> "BOOST даёт лучший маршрут"
+                            "DIRECT" -> "DIRECT уже быстрее — VPN не нужен"
+                            "MANUAL_BETTER" -> "Выбранный вручную Gateway улучшает маршрут"
+                            "MANUAL_WORSE" -> "Выбранный Gateway хуже или не лучше DIRECT"
+                            "GATEWAY_ONLY" -> "Пока оцениваем только доступ до Gateway"
+                            else -> "Выбери игру и запусти проверку маршрута"
+                        },
+                        color = when (state.routeRecommendation) {
+                            "BOOST", "MANUAL_BETTER" -> HubMint
+                            "DIRECT" -> HubCyan
+                            "MANUAL_WORSE" -> HubError
+                            else -> HubMuted
+                        },
+                        fontSize = 12.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MetricBox(
+                            "ПРЯМОЙ",
+                            state.directPingMs?.let { "$it ms" } ?: "—",
+                            Modifier.weight(1f),
+                        )
+                        MetricBox(
+                            "ЧЕРЕЗ BOOST",
+                            state.boostedEstimatedPingMs?.let { "$it ms" } ?: "—",
+                            Modifier.weight(1f),
+                        )
+                        MetricBox(
+                            "ВЫИГРЫШ",
+                            state.routeGainMs?.let {
+                                when {
+                                    it > 0 -> "−$it ms"
+                                    it < 0 -> "+${-it} ms"
+                                    else -> "0 ms"
+                                }
+                            } ?: "—",
+                            Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "p95: Direct ${state.directP95Ms?.let { "$it ms" } ?: "—"} · " +
+                            "Boost ${state.boostedEstimatedP95Ms?.let { "$it ms" } ?: "—"}",
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    Text(
+                        "Target: ${state.routeTargetId ?: "не задан"} · проверено маршрутов: ${state.routeCandidatesTested}",
+                        color = HubMuted,
+                        fontSize = 10.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (state.routeTargetId != null) {
+                            "Это измерение сетевого маршрута. Ping внутри самой игры может отличаться."
+                        } else {
+                            "Без игрового target показываем только RTT до Gateway — это не игровой ping."
+                        },
+                        color = HubMuted,
+                        fontSize = 10.sp,
+                    )
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Регион: ${state.preferredRegion} · узел: ${state.selectedGatewayRegion ?: "авто"}",
-                    color = HubMuted,
-                    fontSize = 11.sp,
-                )
             }
+            item {
+                Panel {
+                    Text("Режим ускорения", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SelectChip("Умный", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
+                        SelectChip("Низкий ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
+                        SelectChip("Стабильный", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Регион: ${state.preferredRegion} · узел: ${state.selectedGatewayRegion ?: "авто"}",
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+    
         }
         item {
             state.selectedApp?.let { SelectedAppCard(it, state, viewModel::cycleGameLaunchMode) }
@@ -724,73 +740,76 @@ private fun BoostPage(
                 onClick = viewModel::boostAndLaunchGame,
             )
         }
-        item {
-            Panel {
-                Text("Сетевой буст", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text("VPN-маршрут отдельно от локального запуска.", color = HubMuted, fontSize = 12.sp)
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = {
-                            if (state.isBoosting) {
-                                if (state.confirmStop) confirmDisconnect = true else viewModel.disconnectTunnel()
-                            } else onRequestVpnPermission()
-                        },
-                        enabled = !state.isTunnelConnecting && (
-                            state.isBoosting ||
-                                !state.autoSelectBestNode ||
-                                state.routeRecommendation in setOf("BOOST", "GATEWAY_ONLY")
-                            ),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            when {
-                                state.isTunnelConnecting -> "Подключаем…"
-                                state.isBoosting -> "Отключить"
-                                state.routeRecommendation == "DIRECT" && state.autoSelectBestNode -> "DIRECT лучший"
-                                state.routeRecommendation == "UNKNOWN" && state.autoSelectBestNode -> "Сначала маршрут"
-                                else -> "Включить VPN"
+        if (serverConfigured) {
+            item {
+                Panel {
+                    Text("Сетевой буст", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("VPN-маршрут отдельно от локального запуска.", color = HubMuted, fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                if (state.isBoosting) {
+                                    if (state.confirmStop) confirmDisconnect = true else viewModel.disconnectTunnel()
+                                } else onRequestVpnPermission()
                             },
+                            enabled = !state.isTunnelConnecting && (
+                                state.isBoosting ||
+                                    !state.autoSelectBestNode ||
+                                    state.routeRecommendation in setOf("BOOST", "GATEWAY_ONLY")
+                                ),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                when {
+                                    state.isTunnelConnecting -> "Подключаем…"
+                                    state.isBoosting -> "Отключить"
+                                    state.routeRecommendation == "DIRECT" && state.autoSelectBestNode -> "DIRECT лучший"
+                                    state.routeRecommendation == "UNKNOWN" && state.autoSelectBestNode -> "Сначала маршрут"
+                                    else -> "Включить VPN"
+                                },
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = viewModel::autoSelectGateway,
+                            enabled = !state.isBoosting && !state.isTunnelConnecting && !state.isAutoSelecting,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(if (state.isAutoSelecting) "Сравниваем…" else "Лучший маршрут")
+                        }
+                    }
+                    if (state.isBoosting) {
+                        Text("Сервер зафиксирован до отключения Network Boost.", color = HubMint, fontSize = 11.sp)
+                    }
+                    state.tunnelError?.let { Text(it, color = HubError, fontSize = 11.sp) }
+                    if (state.isPeerProvisioning) {
+                        Text(
+                            "Регистрируем этот телефон на Gateway…",
+                            color = HubCyan,
+                            fontSize = 11.sp,
                         )
                     }
-                    OutlinedButton(
-                        onClick = viewModel::autoSelectGateway,
-                        enabled = !state.isBoosting && !state.isTunnelConnecting && !state.isAutoSelecting,
-                        modifier = Modifier.weight(1f),
+                    state.peerProvisionError?.let {
+                        Text(
+                            "Peer provisioning: $it",
+                            color = HubMuted,
+                            fontSize = 10.sp,
+                        )
+                    }
+                    if (
+                        !state.isPeerProvisioning &&
+                        state.peerProvisionError == null &&
+                        state.deviceAuthId != null
                     ) {
-                        Text(if (state.isAutoSelecting) "Сравниваем…" else "Лучший маршрут")
+                        Text(
+                            "Device auth: ${state.deviceAuthId}",
+                            color = HubMint,
+                            fontSize = 10.sp,
+                        )
                     }
                 }
-                if (state.isBoosting) {
-                    Text("Сервер зафиксирован до отключения Network Boost.", color = HubMint, fontSize = 11.sp)
-                }
-                state.tunnelError?.let { Text(it, color = HubError, fontSize = 11.sp) }
-                if (state.isPeerProvisioning) {
-                    Text(
-                        "Регистрируем этот телефон на Gateway…",
-                        color = HubCyan,
-                        fontSize = 11.sp,
-                    )
-                }
-                state.peerProvisionError?.let {
-                    Text(
-                        "Peer provisioning: $it",
-                        color = HubMuted,
-                        fontSize = 10.sp,
-                    )
-                }
-                if (
-                    !state.isPeerProvisioning &&
-                    state.peerProvisionError == null &&
-                    state.deviceAuthId != null
-                ) {
-                    Text(
-                        "Device auth: ${state.deviceAuthId}",
-                        color = HubMint,
-                        fontSize = 10.sp,
-                    )
-                }
             }
+    
         }
         item {
             OutlinedTextField(
@@ -1662,6 +1681,13 @@ private fun SelectedAppCard(app: BoostApp, state: BoostState, onProfile: () -> U
             Column(Modifier.weight(1f)) {
                 Text(app.label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(state.gameBoostMessage, color = HubMuted, fontSize = 11.sp)
+                if (!app.isGame) {
+                    Text(
+                        "Добавлено вручную как игра",
+                        color = HubCyan,
+                        fontSize = 10.sp,
+                    )
+                }
             }
         }
         Spacer(Modifier.height(10.dp))
