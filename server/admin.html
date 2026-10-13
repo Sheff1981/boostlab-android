@@ -22,7 +22,7 @@ th{color:#9cbbd2}
 <div class="controls"><input id="token" type="password" autocomplete="off" placeholder="Администраторский токен"><button id="load">Обновить</button></div>
 <p id="status" role="status"></p>
 <div class="cards"><div class="card">Зарегистрировано<strong id="total">—</strong></div><div class="card">Разрешён доступ<strong id="enabled">—</strong></div></div>
-<h2>Устройства</h2><div style="overflow:auto"><table><thead><tr><th>ID</th><th>Адрес VPN</th><th>Статус</th></tr></thead><tbody id="devices"></tbody></table></div>
+<h2>Устройства</h2><div style="overflow:auto"><table><thead><tr><th>ID</th><th>Телефон</th><th>Адрес VPN</th><th>Осталось</th><th>Статус</th></tr></thead><tbody id="devices"></tbody></table></div>
 <script>
 document.getElementById('load').onclick=async()=>{
 const token=document.getElementById('token').value;
@@ -39,7 +39,7 @@ document.getElementById('enabled').textContent=summary.enabled_devices;
 const tbody=document.getElementById('devices');tbody.replaceChildren();
 for(const d of list.devices){
 const tr=document.createElement('tr');
-for(const value of [d.id,d.vpn_ip,d.enabled?'Разрешён':'Заблокирован']){
+for(const value of [d.id,(d.manufacturer+' '+d.model).trim()||'Неизвестно',d.vpn_ip,d.days_remaining+' дней',d.enabled&&d.days_remaining>0?'Активна':'Нет доступа']){
 const td=document.createElement('td');td.textContent=value;tr.append(td)}
 tbody.append(tr)}
 status.textContent='Данные обновлены';
