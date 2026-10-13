@@ -109,6 +109,7 @@ data class BoostState(
 
     val gatewayHost: String = "",
     val gatewayPort: Int = 51821,
+    val gatewayProbeTransport: String = "NONE",
     val isProbing: Boolean = false,
     val probeError: String? = null,
     val serverLabel: String = "Сервер ещё не задан",
