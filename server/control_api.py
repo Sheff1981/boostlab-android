@@ -45,6 +45,8 @@ def database():
         ("model", "TEXT NOT NULL DEFAULT ''"),
         ("android_version", "TEXT NOT NULL DEFAULT ''"),
         ("account_id", "TEXT"),
+        ("link_token_hash", "TEXT"),
+        ("link_token_expires_at", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if name not in columns:
             conn.execute(f"ALTER TABLE devices ADD COLUMN {name} {definition}")
@@ -193,6 +195,39 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(200, {"ok": True})
             return
 
+        if self.path == "/v1/accounts/devices/link":
+            try:
+                payload = self.body()
+                authorization = self.headers.get("Authorization", "")
+                token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+                device_id = payload["device_id"]
+                proof = payload["link_token"]
+                if not isinstance(device_id, str) or not isinstance(proof, str) or len(proof) < 32:
+                    raise ValueError("invalid_link_proof")
+                with LOCK, database() as conn:
+                    account = account_for_token(conn, token)
+                    if account is None:
+                        self.respond(401, {"error": "unauthorized"})
+                        return
+                    row = conn.execute("SELECT account_id, link_token_hash, link_token_expires_at FROM devices WHERE device_id=?",
+                                       (device_id,)).fetchone()
+                    if row is None:
+                        self.respond(404, {"error": "device_not_found"})
+                        return
+                    if row[0] is not None and row[0] != account["account_id"]:
+                        self.respond(409, {"error": "device_already_linked"})
+                        return
+                    if not row[1] or row[2] <= int(time.time()) or not hmac.compare_digest(row[1], hash_token(proof)):
+                        self.respond(403, {"error": "invalid_link_proof"})
+                        return
+                    conn.execute("UPDATE devices SET account_id=?, link_token_hash=NULL, link_token_expires_at=0 WHERE device_id=?",
+                                 (account["account_id"], device_id))
+                    conn.commit()
+                self.respond(200, {"device_id": device_id, "account_id": account["account_id"]})
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            return
+
         if self.path == "/admin/enrollment":
             if not self.authorized():
                 self.respond(403, {"error": "forbidden"})
@@ -282,16 +317,17 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(503, {"error": "pool_exhausted"})
                     return
                 device_id = secrets.token_hex(16)
+                link_token = secrets.token_urlsafe(32)
                 # Configure peer before committing enrollment; a failure leaves token usable.
                 add_peer(public_key, address)
                 conn.execute("""INSERT INTO devices(device_id, public_key, ip, created_at, expires_at,
-                    manufacturer, model, android_version) VALUES(?,?,?,?,?,?,?,?)""",
+                    manufacturer, model, android_version, link_token_hash, link_token_expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
                     (device_id, public_key, address, int(time.time()), int(time.time())+30*86400,
                      str(body.get("manufacturer", ""))[:80], str(body.get("model", ""))[:80],
-                     str(body.get("android_version", ""))[:30]))
+                     str(body.get("android_version", ""))[:30], hash_token(link_token), int(time.time()) + 86400))
                 conn.execute("UPDATE enrollments SET used=1 WHERE token_hash=?", (hash_token(token),))
                 conn.commit()
-            self.respond(201, {"device_id": device_id, "trial_expires_at": int(time.time()) + 30*86400, "address": address + "/32",
+            self.respond(201, {"device_id": device_id, "link_token": link_token, "trial_expires_at": int(time.time()) + 30*86400, "address": address + "/32",
                                "gateway_endpoint": PUBLIC_ENDPOINT, "gateway_public_key": SERVER_PUBLIC_KEY})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.respond(400, {"error": "invalid_request"})
