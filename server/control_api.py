@@ -193,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
                         self.respond(404, {"error": "not_found"})
                         return
                     expires = max(int(time.time()), row[0]) + days*86400
-                    conn.execute("UPDATE devices SET expires_at=?, enabled=1 WHERE device_id=?", (expires, device_id))
+                    conn.execute("UPDATE devices SET expires_at=? WHERE device_id=?", (expires, device_id))
                     conn.commit()
                 self.respond(200, {"device_id": device_id, "expires_at": expires})
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
@@ -234,7 +234,7 @@ class Handler(BaseHTTPRequestHandler):
                      str(body.get("android_version", ""))[:30]))
                 conn.execute("UPDATE enrollments SET used=1 WHERE token_hash=?", (hash_token(token),))
                 conn.commit()
-            self.respond(201, {"device_id": device_id, "address": address + "/32",
+            self.respond(201, {"device_id": device_id, "trial_expires_at": int(time.time()) + 30*86400, "address": address + "/32",
                                "gateway_endpoint": PUBLIC_ENDPOINT, "gateway_public_key": SERVER_PUBLIC_KEY})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.respond(400, {"error": "invalid_request"})
