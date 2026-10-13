@@ -44,6 +44,7 @@ def database():
         ("manufacturer", "TEXT NOT NULL DEFAULT ''"),
         ("model", "TEXT NOT NULL DEFAULT ''"),
         ("android_version", "TEXT NOT NULL DEFAULT ''"),
+        ("account_id", "TEXT"),
     ):
         if name not in columns:
             conn.execute(f"ALTER TABLE devices ADD COLUMN {name} {definition}")
@@ -124,6 +125,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(html)))
             self.end_headers()
             self.wfile.write(html)
+            return
+        if self.path == "/v1/accounts/devices":
+            authorization = self.headers.get("Authorization", "")
+            token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+            with LOCK, database() as conn:
+                account = account_for_token(conn, token)
+                if account is None:
+                    self.respond(401, {"error": "unauthorized"})
+                    return
+                rows = conn.execute("SELECT device_id, manufacturer, model, expires_at, enabled FROM devices WHERE account_id=?",
+                                    (account["account_id"],)).fetchall()
+            now = int(time.time())
+            self.respond(200, {"devices": [
+                {"id": row[0], "manufacturer": row[1], "model": row[2],
+                 "days_remaining": max(0, (row[3]-now+86399)//86400), "enabled": bool(row[4])}
+                for row in rows]})
             return
         if self.path == "/admin/summary":
             if not self.authorized():
