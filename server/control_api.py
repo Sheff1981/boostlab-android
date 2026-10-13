@@ -65,6 +65,16 @@ def hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def reconcile_expired_peers():
+    """Remove expired or blocked peers; safe to invoke periodically from systemd timer."""
+    now = int(time.time())
+    with LOCK, database() as conn:
+        rows = conn.execute("SELECT public_key FROM devices WHERE enabled=0 OR expires_at<=?", (now,)).fetchall()
+    for (public_key,) in rows:
+        subprocess.run(["wg", "set", WG_INTERFACE, "peer", public_key, "remove"],
+                       check=True, capture_output=True, timeout=10)
+
+
 def add_peer(public_key, address):
     # No shell interpolation: subprocess arguments are separate.
     subprocess.run(
@@ -237,4 +247,7 @@ if __name__ == "__main__":
         raise SystemExit("Set a random BOOSTLAB_ADMIN_TOKEN of at least 32 characters")
     with database():
         pass
+    if "--reconcile" in __import__("sys").argv:
+        reconcile_expired_peers()
+        raise SystemExit(0)
     ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
