@@ -11,6 +11,8 @@ object NetworkDiagnosticReport {
         appendLine("boost_active=${state.isBoosting}")
         appendLine("tunnel_connecting=${state.isTunnelConnecting}")
         appendLine("route_health=${state.routeHealth}")
+        appendLine("route_quality=${state.routeQualityLevel}")
+        appendLine("route_quality_reason=${safe(state.routeQualityReason)}")
         appendLine("route_recommendation=${state.routeRecommendation}")
         appendLine("probe_mode=${state.liveProbeMode}")
         appendLine("boost_mode=${state.boostMode}")
