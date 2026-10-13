@@ -63,6 +63,8 @@ data class BoostState(
     val routeHealth: String = "IDLE",
     val routeProbeFailures: Int = 0,
     val liveProbeMode: String = "NORMAL",
+    val routeQualityLevel: String = "UNKNOWN",
+    val routeQualityReason: String? = null,
 
     val clientPublicKey: String? = null,
     val identityError: String? = null,
