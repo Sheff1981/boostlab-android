@@ -66,6 +66,17 @@ class MainActivity : ComponentActivity() {
             }
         }.start()
     }
+    private fun disconnect() {
+        updateStatus("Отключение WireGuard…")
+        Thread {
+            try {
+                backend.setState(tunnel, Tunnel.State.DOWN, null)
+                runOnUiThread { updateStatus("VPN отключён") }
+            } catch (e: Exception) {
+                runOnUiThread { updateStatus("Ошибка отключения: ${e.message}") }
+            }
+        }.start()
+    }
     private fun requestConnect() {
         if (importedConfig == null) {
             importConfig.launch("*/*")
@@ -104,6 +115,10 @@ class MainActivity : ComponentActivity() {
                                 onClick = { requestConnect() },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("BOOST") }
+                            OutlinedButton(
+                                onClick = { disconnect() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Отключить VPN") }
                             Text("Тестовый режим: импорт WireGuard-конфигурации. Запуск игры до проверки handshake заблокирован.", color = Color.LightGray)
                         }
                     }
