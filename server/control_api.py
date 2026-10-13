@@ -36,6 +36,16 @@ def database():
     cols = {row[1] for row in conn.execute("PRAGMA table_info(enrollments)")}
     if "expires_at" not in cols:
         conn.execute("ALTER TABLE enrollments ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(devices)")}
+    for name, definition in (
+        ("created_at", "INTEGER NOT NULL DEFAULT 0"),
+        ("expires_at", "INTEGER NOT NULL DEFAULT 0"),
+        ("manufacturer", "TEXT NOT NULL DEFAULT ''"),
+        ("model", "TEXT NOT NULL DEFAULT ''"),
+        ("android_version", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE devices ADD COLUMN {name} {definition}")
     conn.commit()
     return conn
 
@@ -90,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             with LOCK, database() as conn:
                 total = conn.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
-                enabled = conn.execute("SELECT COUNT(*) FROM devices WHERE enabled=1").fetchone()[0]
+                enabled = conn.execute("SELECT COUNT(*) FROM devices WHERE enabled=1 AND expires_at>?", (int(time.time()),)).fetchone()[0]
             self.respond(200, {"total_devices": total, "enabled_devices": enabled})
             return
         if self.path == "/admin/devices":
@@ -98,8 +108,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(403, {"error": "forbidden"})
                 return
             with LOCK, database() as conn:
-                rows = conn.execute("SELECT device_id, ip, enabled FROM devices ORDER BY rowid DESC LIMIT 500").fetchall()
-            self.respond(200, {"devices": [{"id": row[0], "vpn_ip": row[1], "enabled": bool(row[2])} for row in rows]})
+                rows = conn.execute("SELECT device_id, ip, enabled, expires_at, manufacturer, model, android_version FROM devices ORDER BY rowid DESC LIMIT 500").fetchall()
+            self.respond(200, {"devices": [{"id": row[0], "vpn_ip": row[1], "enabled": bool(row[2]), "expires_at": row[3], "days_remaining": max(0, (row[3]-int(time.time())+86399)//86400), "manufacturer": row[4], "model": row[5], "android_version": row[6]} for row in rows]})
             return
         if self.path == "/health":
             self.respond(200, {"status": "ok"})
@@ -119,6 +129,27 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(201, {"enrollment_token": token})
             return
 
+        if self.path == "/admin/subscription":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            try:
+                payload = self.body()
+                device_id, days = payload["device_id"], payload["days"]
+                if not isinstance(device_id, str) or type(days) is not int or not 1 <= days <= 365:
+                    raise ValueError("Invalid input")
+                with LOCK, database() as conn:
+                    row = conn.execute("SELECT expires_at FROM devices WHERE device_id=?", (device_id,)).fetchone()
+                    if row is None:
+                        self.respond(404, {"error": "not_found"})
+                        return
+                    expires = max(int(time.time()), row[0]) + days*86400
+                    conn.execute("UPDATE devices SET expires_at=?, enabled=1 WHERE device_id=?", (expires, device_id))
+                    conn.commit()
+                self.respond(200, {"device_id": device_id, "expires_at": expires})
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            return
         if self.path != "/v1/devices/enroll":
             self.respond(404, {"error": "not_found"})
             return
@@ -147,8 +178,11 @@ class Handler(BaseHTTPRequestHandler):
                 device_id = secrets.token_hex(16)
                 # Configure peer before committing enrollment; a failure leaves token usable.
                 add_peer(public_key, address)
-                conn.execute("INSERT INTO devices(device_id, public_key, ip) VALUES(?,?,?)",
-                             (device_id, public_key, address))
+                conn.execute("""INSERT INTO devices(device_id, public_key, ip, created_at, expires_at,
+                    manufacturer, model, android_version) VALUES(?,?,?,?,?,?,?,?)""",
+                    (device_id, public_key, address, int(time.time()), int(time.time())+30*86400,
+                     str(body.get("manufacturer", ""))[:80], str(body.get("model", ""))[:80],
+                     str(body.get("android_version", ""))[:30]))
                 conn.execute("UPDATE enrollments SET used=1 WHERE token_hash=?", (hash_token(token),))
                 conn.commit()
             self.respond(201, {"device_id": device_id, "address": address + "/32",
