@@ -239,7 +239,7 @@ private fun GatewaySelectorPage(
             }
         }
 
-        item {
+        if (state.gatewayDirectory.isNotEmpty()) item {
             GatewaySection(title = "Auto", subtitle = "Сам выберет лучший маршрут") {
                 AutoGatewayRow(
                     title = "Auto 1 · Бесплатно",
@@ -397,7 +397,7 @@ private fun AutoGatewayRow(
         if (active) {
             Text("✓", color = HubMint, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         } else {
-            Text("▂▄▆", color = HubMint, fontSize = 18.sp)
+            Text("—", color = HubMuted, fontSize = 18.sp)
         }
     }
 }
@@ -411,11 +411,11 @@ private fun GatewayNodeRow(
     onClick: () -> Unit,
 ) {
     val signal = when {
-        lossPct != null && lossPct >= 20.0 -> "▂"
-        pingMs == null -> "· · ·"
-        pingMs <= 45 -> "▂▄▆"
-        pingMs <= 90 -> "▂▄"
-        else -> "▂"
+        lossPct != null && lossPct >= 20.0 -> "Потери"
+        pingMs == null -> "—"
+        pingMs <= 45 -> "Низкий RTT"
+        pingMs <= 90 -> "Средний RTT"
+        else -> "Высокий RTT"
     }
     val label = node.city?.let { "${node.countryCode ?: node.region} - $it" }
         ?: node.displayName
