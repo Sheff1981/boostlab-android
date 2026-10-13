@@ -629,7 +629,7 @@ private fun BoostPage(
         item { NetworkHero(state) }
         item {
             Panel {
-                Text("Route Intelligence", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Анализ маршрута", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(
                     when (state.routeRecommendation) {
                         "BOOST" -> "BOOST даёт лучший маршрут"
@@ -650,12 +650,12 @@ private fun BoostPage(
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MetricBox(
-                        "DIRECT ROUTE",
+                        "ПРЯМОЙ",
                         state.directPingMs?.let { "$it ms" } ?: "—",
                         Modifier.weight(1f),
                     )
                     MetricBox(
-                        "BOOST ROUTE",
+                        "ЧЕРЕЗ BOOST",
                         state.boostedEstimatedPingMs?.let { "$it ms" } ?: "—",
                         Modifier.weight(1f),
                     )
@@ -701,9 +701,9 @@ private fun BoostPage(
                 Text("Режим ускорения", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SelectChip("Smart", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
-                    SelectChip("Low Ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
-                    SelectChip("Stable", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
+                    SelectChip("Умный", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
+                    SelectChip("Низкий ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
+                    SelectChip("Стабильный", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
@@ -726,7 +726,7 @@ private fun BoostPage(
         }
         item {
             Panel {
-                Text("Network Boost", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Сетевой буст", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text("VPN-маршрут отдельно от локального запуска.", color = HubMuted, fontSize = 12.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -819,20 +819,20 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Статистика", "Boost Report · реальные измерения") }
+        item { PageHeader("Статистика", "Реальные измерения устройства и маршрута") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricBox("PING", if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт", Modifier.weight(1f))
-                MetricBox("JITTER", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-                MetricBox("LOSS", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
+                MetricBox("RTT", if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт", Modifier.weight(1f))
+                MetricBox("ДЖИТТЕР", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                MetricBox("ПОТЕРИ", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
             }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricBox("P95", state.p95PingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-                MetricBox("DIRECT", state.directPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                MetricBox("ПРЯМОЙ", state.directPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
                 MetricBox(
-                    "GAIN",
+                    "ВЫИГРЫШ",
                     state.routeGainMs?.let { if (it > 0) "−$it ms" else "$it ms" } ?: "—",
                     Modifier.weight(1f),
                 )
@@ -848,17 +848,17 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricBox(
-                    "LINK MTU",
+                    "MTU СЕТИ",
                     state.networkMtu?.toString() ?: "—",
                     Modifier.weight(1f),
                 )
                 MetricBox(
-                    "WG MTU",
+                    "MTU WG",
                     state.tunnelMtu.toString(),
                     Modifier.weight(1f),
                 )
                 MetricBox(
-                    "HANDOFF",
+                    "СМЕНА СЕТИ",
                     if (state.routeHealth == "NETWORK_CHANGED") "CHECK" else "OK",
                     Modifier.weight(1f),
                 )
@@ -868,7 +868,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricBox("VPN ↓", trafficLabel(state.tunnelRxBytes), Modifier.weight(1f))
                 MetricBox("VPN ↑", trafficLabel(state.tunnelTxBytes), Modifier.weight(1f))
-                MetricBox("ROUTE", state.routeHealth, Modifier.weight(1f))
+                MetricBox("МАРШРУТ", state.routeHealth, Modifier.weight(1f))
             }
         }
         item {
@@ -908,17 +908,17 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         }
         item {
             Panel {
-                Text("Boost Report", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Отчёт о бусте", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("Сессий: ${state.boostSessionCount}", color = HubMuted)
                 Text("Общее время: ${formatDuration(state.totalBoostSeconds)}", color = HubMuted)
                 Text("Последняя сессия: ${formatDuration(state.lastBoostSeconds)}", color = HubMuted)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MetricBox("LAST PING", state.lastBoostPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-                    MetricBox("LAST JITTER", state.lastBoostJitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                    MetricBox("ПОСЛ. RTT", state.lastBoostPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                    MetricBox("ПОСЛ. ДЖИТТЕР", state.lastBoostJitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
                     MetricBox(
-                        "LAST LOSS",
+                        "ПОСЛ. ПОТЕРИ",
                         state.lastBoostPacketLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—",
                         Modifier.weight(1f),
                     )
@@ -926,7 +926,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MetricBox(
-                        "ROUTE RESULT",
+                        "РЕЗУЛЬТАТ",
                         state.lastRouteGainMs?.let {
                             when {
                                 it > 0 -> "−$it ms"
@@ -937,12 +937,12 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                         Modifier.weight(1f),
                     )
                     MetricBox(
-                        "GAME TRAFFIC",
-                        if (state.lastGameTrafficVerified) "VERIFIED" else "NOT VERIFIED",
+                        "ТРАФИК ИГРЫ",
+                        if (state.lastGameTrafficVerified) "ПОДТВЕРЖДЁН" else "НЕ ПРОВЕРЕН",
                         Modifier.weight(1f),
                     )
                     MetricBox(
-                        "LAST STATE",
+                        "СОСТОЯНИЕ",
                         state.lastRouteHealth ?: "—",
                         Modifier.weight(1f),
                     )
@@ -957,7 +957,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         }
         item {
             Panel {
-                Text(if (state.isBoosting) "Network Boost активен" else "Network Boost выключен", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(if (state.isBoosting) "Сетевой буст активен" else "Сетевой буст выключен", color = Color.White, fontWeight = FontWeight.Bold)
                 Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
                 Text("Режим: ${state.boostMode} · регион: ${state.preferredRegion}", color = HubMuted, fontSize = 11.sp)
                 Text(
@@ -981,7 +981,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     fontSize = 11.sp,
                 )
                 Text(
-                    "Мониторинг: ${state.liveProbeMode}",
+                    "Мониторинг: ${probeModeLabel(state.liveProbeMode)}",
                     color = when (state.liveProbeMode) {
                         "THERMAL_CRITICAL", "THERMAL_SAFE" -> HubError
                         "POWER_SAVE" -> HubCyan
@@ -990,7 +990,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     fontSize = 10.sp,
                 )
                 Text(
-                    "Доступ до Gateway: ${state.gatewayProbeTransport}",
+                    "Доступ до Gateway: ${probeTransportLabel(state.gatewayProbeTransport)}",
                     color = if (state.gatewayProbeTransport == "HTTPS_FALLBACK") {
                         HubCyan
                     } else {
@@ -1006,7 +1006,7 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                     )
                 }
                 Text(
-                    "Качество маршрута: ${state.routeQualityLevel}" +
+                    "Качество маршрута: ${routeQualityLabel(state.routeQualityLevel)}" +
                         (state.routeQualityReason?.let { " · $it" } ?: ""),
                     color = if (state.routeHealth == "UNSTABLE") HubError else HubMuted,
                     fontSize = 10.sp,
@@ -1404,13 +1404,13 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
 
         item {
             Panel {
-                Text("Network Boost", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Сетевой буст", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("Режим", color = HubMuted, fontSize = 11.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SelectChip("Smart", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
-                    SelectChip("Low Ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
-                    SelectChip("Stable", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
+                    SelectChip("Умный", state.boostMode == "SMART") { viewModel.setBoostMode("SMART") }
+                    SelectChip("Низкий ping", state.boostMode == "LOW_PING") { viewModel.setBoostMode("LOW_PING") }
+                    SelectChip("Стабильный", state.boostMode == "STABLE") { viewModel.setBoostMode("STABLE") }
                 }
                 Spacer(Modifier.height(10.dp))
                 Text("Предпочтительный регион", color = HubMuted, fontSize = 11.sp)
@@ -1600,19 +1600,24 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
 @Composable
 private fun NetworkHero(state: BoostState) {
     Panel {
-        Text(if (state.isBoosting) "NETWORK BOOST ON" else "LOCAL BOOST", color = if (state.isBoosting) HubMint else HubCyan, fontWeight = FontWeight.Black, fontSize = 13.sp)
+        Text(
+            if (state.isBoosting) "СЕТЕВОЙ БУСТ ВКЛЮЧЁН" else "ЛОКАЛЬНЫЙ РЕЖИМ",
+            color = if (state.isBoosting) HubMint else HubCyan,
+            fontWeight = FontWeight.Black,
+            fontSize = 13.sp,
+        )
         Spacer(Modifier.height(4.dp))
         Text(state.selectedApp?.label ?: "Выбери приложение", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
         Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MetricBox(
-                if (state.routeTargetId != null) "ROUTE RTT" else "GATEWAY RTT",
+                if (state.routeTargetId != null) "RTT МАРШРУТА" else "RTT GATEWAY",
                 if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт",
                 Modifier.weight(1f),
             )
-            MetricBox("JITTER", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-            MetricBox("LOSS", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
+            MetricBox("ДЖИТТЕР", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+            MetricBox("ПОТЕРИ", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
         }
         if (state.routeTargetId != null) {
             Spacer(Modifier.height(7.dp))
@@ -1799,12 +1804,12 @@ private fun trafficLabel(bytes: Long): String = when {
 
 private fun thermalLabel(status: Int?): String = when (status) {
     null -> "—"
-    0 -> "OK"
-    1 -> "LIGHT"
-    2 -> "WARM"
-    3 -> "HOT"
-    4 -> "SEVERE"
-    else -> "CRIT"
+    0 -> "НОРМА"
+    1 -> "ЛЁГКИЙ"
+    2 -> "ТЁПЛЫЙ"
+    3 -> "ГОРЯЧО"
+    4 -> "СИЛЬНЫЙ"
+    else -> "КРИТИЧ."
 }
 
 
@@ -1829,4 +1834,28 @@ private fun voiceStateLabel(state: String): String = when (state) {
     "CONNECTED" -> "соединено"
     "FAILED" -> "ошибка"
     else -> "готов"
+}
+
+
+private fun probeModeLabel(value: String): String = when (value) {
+    "NORMAL" -> "обычный"
+    "POWER_SAVE" -> "экономия батареи"
+    "THERMAL_SAFE" -> "защита от нагрева"
+    "THERMAL_CRITICAL" -> "критический нагрев"
+    else -> value
+}
+
+private fun probeTransportLabel(value: String): String = when (value) {
+    "NONE" -> "нет"
+    "UDP" -> "UDP"
+    "HTTPS_FALLBACK" -> "HTTPS резерв"
+    else -> value
+}
+
+private fun routeQualityLabel(value: String): String = when (value) {
+    "UNKNOWN" -> "не измерено"
+    "GOOD" -> "хорошее"
+    "FAIR" -> "среднее"
+    "POOR" -> "плохое"
+    else -> value
 }
