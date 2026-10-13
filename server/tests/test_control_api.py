@@ -110,6 +110,10 @@ class ControlTests(unittest.TestCase):
         })
         self.assertEqual(status, 409)
 
+    def test_device_list_requires_session(self):
+        status, _ = self.request("/v1/accounts/devices")
+        self.assertEqual(status, 401)
+
     def test_expired_token_rejected(self):
         status, token_data = self.request("/admin/enrollment", {}, auth=True)
         with api.database() as conn:
