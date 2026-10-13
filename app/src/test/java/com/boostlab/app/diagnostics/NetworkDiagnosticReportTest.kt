@@ -12,6 +12,8 @@ class NetworkDiagnosticReportTest {
             isBoosting = true,
             routeHealth = "GAME_ROUTE",
             routeRecommendation = "BOOST",
+            routeQualityLevel = "DEGRADED",
+            routeQualityReason = "Jitter 27 ms",
             selectedGatewayId = "fra-1",
             selectedGatewayRegion = "europe",
             routeTargetId = "game-eu",
@@ -30,6 +32,8 @@ class NetworkDiagnosticReportTest {
         val report = NetworkDiagnosticReport.build(state)
 
         assertTrue(report.contains("route_health=GAME_ROUTE"))
+        assertTrue(report.contains("route_quality=DEGRADED"))
+        assertTrue(report.contains("route_quality_reason=Jitter 27 ms"))
         assertTrue(report.contains("gateway_id=fra-1"))
         assertTrue(report.contains("route_rtt_ms=42"))
         assertFalse(report.contains("TOP-SECRET-ENROLLMENT"))
