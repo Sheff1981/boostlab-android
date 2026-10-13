@@ -1359,7 +1359,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         controlPlane.fetchRouteTargets(
                             snapshot.controlPlaneUrl,
                             packageName,
-                        )
+                        ).take(MAX_ROUTE_TARGETS)
                     }.getOrDefault(emptyList())
                 } else {
                     emptyList()
@@ -2907,6 +2907,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         val targets = runCatching {
             controlPlane.fetchRouteTargets(snapshot.controlPlaneUrl, packageName)
+                .take(MAX_ROUTE_TARGETS)
         }.getOrDefault(emptyList())
         if (targets.isEmpty()) return null
 
@@ -3227,6 +3228,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val WARM_ROUTE_ACCESS_SAMPLES = 4
         private const val WARM_ROUTE_DIRECT_SAMPLES = 4
         private const val WARM_ROUTE_MAX_TARGETS = 3
+        private const val MAX_ROUTE_TARGETS = 8
         private const val MAX_DIRECTORY_NODES = 64
         private const val DIRECTORY_SAMPLES = 3
         private const val LAN_AUTO_SAMPLES = 4
