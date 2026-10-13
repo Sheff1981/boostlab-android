@@ -814,221 +814,244 @@ private fun BoostPage(
 
 @Composable
 private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: PaddingValues) {
+    val serverConfigured =
+        state.controlPlaneUrl.startsWith("https://") ||
+            state.gatewayHost.isNotBlank() ||
+            state.boostSessionCount > 0 ||
+            state.isBoosting
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { PageHeader("Статистика", "Реальные измерения устройства и маршрута") }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricBox("RTT", if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт", Modifier.weight(1f))
-                MetricBox("ДЖИТТЕР", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-                MetricBox("ПОТЕРИ", state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—", Modifier.weight(1f))
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricBox("P95", state.p95PingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-                MetricBox("ПРЯМОЙ", state.directPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-                MetricBox(
-                    "ВЫИГРЫШ",
-                    state.routeGainMs?.let { if (it > 0) "−$it ms" else "$it ms" } ?: "—",
-                    Modifier.weight(1f),
-                )
-            }
-        }
+
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricBox("RAM", state.availableMemoryPercent?.let { "$it%" } ?: "—", Modifier.weight(1f))
                 MetricBox("НАГРЕВ", thermalLabel(state.thermalStatus), Modifier.weight(1f))
-                MetricBox("СЕТЬ", state.networkTransport ?: "—", Modifier.weight(1f))
+                MetricBox("СЕТЬ", networkLabel(state.networkTransport), Modifier.weight(1f))
             }
         }
+
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricBox(
-                    "MTU СЕТИ",
-                    state.networkMtu?.toString() ?: "—",
-                    Modifier.weight(1f),
-                )
-                MetricBox(
-                    "MTU WG",
-                    state.tunnelMtu.toString(),
-                    Modifier.weight(1f),
-                )
+                MetricBox("MTU СЕТИ", state.networkMtu?.toString() ?: "—", Modifier.weight(1f))
+                MetricBox("MTU WG", state.tunnelMtu.toString(), Modifier.weight(1f))
                 MetricBox(
                     "СМЕНА СЕТИ",
-                    if (state.routeHealth == "NETWORK_CHANGED") "CHECK" else "OK",
+                    if (state.routeHealth == "NETWORK_CHANGED") "ПРОВЕРИТЬ" else "НОРМА",
                     Modifier.weight(1f),
                 )
             }
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MetricBox("VPN ↓", trafficLabel(state.tunnelRxBytes), Modifier.weight(1f))
-                MetricBox("VPN ↑", trafficLabel(state.tunnelTxBytes), Modifier.weight(1f))
-                MetricBox("МАРШРУТ", state.routeHealth, Modifier.weight(1f))
-            }
-        }
-        item {
-            if (state.routeHealth == "NO_GAME_TRAFFIC") {
-                Panel {
-                    Text(
-                        "VPN подключён, но трафик выбранной игры не обнаружен",
-                        color = HubError,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                    )
-                    Spacer(Modifier.height(5.dp))
-                    Text(
-                        "BOOSTLAB не считает такую сессию успешной. Остановим туннель, подтвердим возврат обычной сети и заново проверим Auto-маршрут.",
-                        color = HubMuted,
-                        fontSize = 11.sp,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedButton(
-                        onClick = viewModel::recoverNoGameTraffic,
-                        enabled = state.isBoosting && !state.isTunnelConnecting,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text("Остановить и перепроверить маршрут")
-                    }
-                }
-            } else {
+
+        if (!serverConfigured) {
+            item {
                 InfoCard(
-                    when {
-                        state.gameTrafficVerified -> "Игровой трафик подтверждён"
-                        state.isBoosting -> "Handshake есть · ждём трафик игры"
-                        else -> "Проверка игрового трафика выключена"
-                    },
-                    "RX/TX — фактические байты WireGuard выбранной игры. При наличии игрового target Ping/P95/Jitter/Loss считаются для полного маршрута телефон → Gateway → игра.",
+                    "Локальная диагностика работает",
+                    "Сервер BOOSTLAB пока не подключён. Уже доступны состояние сети, RAM, нагрев и MTU. " +
+                        "RTT, джиттер, потери, игровой трафик и сравнение DIRECT/BOOST появятся после подключения Gateway.",
                 )
             }
-        }
-        item {
-            Panel {
-                Text("Отчёт о бусте", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Spacer(Modifier.height(8.dp))
-                Text("Сессий: ${state.boostSessionCount}", color = HubMuted)
-                Text("Общее время: ${formatDuration(state.totalBoostSeconds)}", color = HubMuted)
-                Text("Последняя сессия: ${formatDuration(state.lastBoostSeconds)}", color = HubMuted)
-                Spacer(Modifier.height(8.dp))
+            item {
+                InfoCard(
+                    "Сетевой буст пока недоступен",
+                    "Это не ошибка приложения: без Gateway нельзя честно измерить или улучшить маршрут до игровой сети.",
+                )
+            }
+        } else {
+            item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MetricBox("ПОСЛ. RTT", state.lastBoostPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
-                    MetricBox("ПОСЛ. ДЖИТТЕР", state.lastBoostJitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
                     MetricBox(
-                        "ПОСЛ. ПОТЕРИ",
-                        state.lastBoostPacketLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—",
+                        "RTT",
+                        if (state.showPing) state.pingMs?.let { "$it ms" } ?: "—" else "скрыт",
+                        Modifier.weight(1f),
+                    )
+                    MetricBox("ДЖИТТЕР", state.jitterMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                    MetricBox(
+                        "ПОТЕРИ",
+                        state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—",
                         Modifier.weight(1f),
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+            }
+            item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricBox("P95", state.p95PingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                    MetricBox("ПРЯМОЙ", state.directPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
                     MetricBox(
-                        "РЕЗУЛЬТАТ",
-                        state.lastRouteGainMs?.let {
-                            when {
-                                it > 0 -> "−$it ms"
-                                it < 0 -> "+${-it} ms"
-                                else -> "0 ms"
-                            }
-                        } ?: "—",
-                        Modifier.weight(1f),
-                    )
-                    MetricBox(
-                        "ТРАФИК ИГРЫ",
-                        if (state.lastGameTrafficVerified) "ПОДТВЕРЖДЁН" else "НЕ ПРОВЕРЕН",
-                        Modifier.weight(1f),
-                    )
-                    MetricBox(
-                        "СОСТОЯНИЕ",
-                        state.lastRouteHealth ?: "—",
+                        "ВЫИГРЫШ",
+                        state.routeGainMs?.let { if (it > 0) "−$it ms" else "$it ms" } ?: "—",
                         Modifier.weight(1f),
                     )
                 }
-                Text(
-                    "Рекомендация последней сессии: ${state.lastRouteRecommendation ?: "—"}. " +
-                        "ROUTE RESULT — измеренная разница маршрутов, не обещание внутриигрового FPS.",
-                    color = HubMuted,
-                    fontSize = 10.sp,
-                )
             }
-        }
-        item {
-            Panel {
-                Text(if (state.isBoosting) "Сетевой буст активен" else "Сетевой буст выключен", color = Color.White, fontWeight = FontWeight.Bold)
-                Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
-                Text("Режим: ${state.boostMode} · регион: ${state.preferredRegion}", color = HubMuted, fontSize = 11.sp)
-                Text(
-                    "Маршрут: ${state.routeHealth} · ошибок проверки подряд: ${state.routeProbeFailures}",
-                    color = if (
-                        state.routeHealth in setOf(
-                            "DEGRADED",
-                            "NETWORK_CHANGED",
-                            "DISCONNECT_FAILED",
-                            "VPN_CONFLICT",
-                            "NO_GAME_TRAFFIC",
-                            "UNSTABLE",
-                            "CONNECT_TIMEOUT",
-                            "OFFLINE",
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricBox("VPN ↓", trafficLabel(state.tunnelRxBytes), Modifier.weight(1f))
+                    MetricBox("VPN ↑", trafficLabel(state.tunnelTxBytes), Modifier.weight(1f))
+                    MetricBox("МАРШРУТ", routeHealthLabel(state.routeHealth), Modifier.weight(1f))
+                }
+            }
+            item {
+                if (state.routeHealth == "NO_GAME_TRAFFIC") {
+                    Panel {
+                        Text(
+                            "VPN подключён, но трафик выбранной игры не обнаружен",
+                            color = HubError,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 17.sp,
                         )
-                    ) {
-                        HubError
-                    } else {
-                        HubMuted
-                    },
-                    fontSize = 11.sp,
-                )
-                Text(
-                    "Мониторинг: ${probeModeLabel(state.liveProbeMode)}",
-                    color = when (state.liveProbeMode) {
-                        "THERMAL_CRITICAL", "THERMAL_SAFE" -> HubError
-                        "POWER_SAVE" -> HubCyan
-                        else -> HubMuted
-                    },
-                    fontSize = 10.sp,
-                )
-                Text(
-                    "Доступ до Gateway: ${probeTransportLabel(state.gatewayProbeTransport)}",
-                    color = if (state.gatewayProbeTransport == "HTTPS_FALLBACK") {
-                        HubCyan
-                    } else {
-                        HubMuted
-                    },
-                    fontSize = 10.sp,
-                )
-                if (state.gatewayProbeTransport == "HTTPS_FALLBACK") {
+                        Spacer(Modifier.height(5.dp))
+                        Text(
+                            "BOOSTLAB не считает такую сессию успешной. Остановим туннель, подтвердим возврат обычной сети и заново проверим маршрут.",
+                            color = HubMuted,
+                            fontSize = 11.sp,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = viewModel::recoverNoGameTraffic,
+                            enabled = state.isBoosting && !state.isTunnelConnecting,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Остановить и перепроверить маршрут")
+                        }
+                    }
+                } else {
+                    InfoCard(
+                        when {
+                            state.gameTrafficVerified -> "Игровой трафик подтверждён"
+                            state.isBoosting -> "Туннель активен · ждём трафик игры"
+                            else -> "Проверка игрового трафика выключена"
+                        },
+                        "RX/TX — фактические байты WireGuard выбранной игры. При наличии игрового target RTT/P95/джиттер/потери считаются для полного маршрута телефон → Gateway → игра.",
+                    )
+                }
+            }
+            item {
+                Panel {
+                    Text("Отчёт о бусте", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Сессий: ${state.boostSessionCount}", color = HubMuted)
+                    Text("Общее время: ${formatDuration(state.totalBoostSeconds)}", color = HubMuted)
+                    Text("Последняя сессия: ${formatDuration(state.lastBoostSeconds)}", color = HubMuted)
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MetricBox("ПОСЛ. RTT", state.lastBoostPingMs?.let { "$it ms" } ?: "—", Modifier.weight(1f))
+                        MetricBox(
+                            "ПОСЛ. ДЖИТТЕР",
+                            state.lastBoostJitterMs?.let { "$it ms" } ?: "—",
+                            Modifier.weight(1f),
+                        )
+                        MetricBox(
+                            "ПОСЛ. ПОТЕРИ",
+                            state.lastBoostPacketLossPct?.let {
+                                String.format(Locale.US, "%.1f%%", it)
+                            } ?: "—",
+                            Modifier.weight(1f),
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MetricBox(
+                            "РЕЗУЛЬТАТ",
+                            state.lastRouteGainMs?.let {
+                                when {
+                                    it > 0 -> "−$it ms"
+                                    it < 0 -> "+${-it} ms"
+                                    else -> "0 ms"
+                                }
+                            } ?: "—",
+                            Modifier.weight(1f),
+                        )
+                        MetricBox(
+                            "ТРАФИК ИГРЫ",
+                            if (state.lastGameTrafficVerified) "ДА" else "НЕТ",
+                            Modifier.weight(1f),
+                        )
+                        MetricBox(
+                            "СОСТОЯНИЕ",
+                            state.lastRouteHealth?.let(::routeHealthLabel) ?: "—",
+                            Modifier.weight(1f),
+                        )
+                    }
                     Text(
-                        "UDP probe отфильтрован сетью. HTTPS используется только как резервная проверка доступности; это не UDP и не внутриигровой ping.",
+                        "Рекомендация последней сессии: " +
+                            recommendationLabel(state.lastRouteRecommendation) +
+                            ". Результат — измеренная разница маршрутов, а не обещание FPS.",
                         color = HubMuted,
                         fontSize = 10.sp,
                     )
                 }
-                Text(
-                    "Качество маршрута: ${routeQualityLabel(state.routeQualityLevel)}" +
-                        (state.routeQualityReason?.let { " · $it" } ?: ""),
-                    color = if (state.routeHealth == "UNSTABLE") HubError else HubMuted,
-                    fontSize = 10.sp,
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = viewModel::probeGateway,
-                    enabled = state.gatewayHost.isNotBlank() &&
-                        !state.isProbing &&
-                        !state.isBoosting &&
-                        !state.isTunnelConnecting &&
-                        !state.isAutoSelecting &&
-                        (
-                            !state.autoSelectBestNode ||
-                                state.routeRecommendation == "GATEWAY_ONLY"
-                            ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (state.isProbing) "Проверяем ping…" else "Тест Gateway ping / jitter / loss")
+            }
+            item {
+                Panel {
+                    Text(
+                        if (state.isBoosting) "Сетевой буст активен" else "Сетевой буст выключен",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
+                    Text(
+                        "Режим: ${boostModeLabel(state.boostMode)} · регион: ${regionLabel(state.preferredRegion)}",
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    Text(
+                        "Маршрут: ${routeHealthLabel(state.routeHealth)} · ошибок подряд: ${state.routeProbeFailures}",
+                        color = if (
+                            state.routeHealth in setOf(
+                                "DEGRADED",
+                                "NETWORK_CHANGED",
+                                "DISCONNECT_FAILED",
+                                "VPN_CONFLICT",
+                                "NO_GAME_TRAFFIC",
+                                "UNSTABLE",
+                                "CONNECT_TIMEOUT",
+                                "OFFLINE",
+                            )
+                        ) HubError else HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    Text(
+                        "Мониторинг: ${probeModeLabel(state.liveProbeMode)}",
+                        color = when (state.liveProbeMode) {
+                            "THERMAL_CRITICAL", "THERMAL_SAFE" -> HubError
+                            "POWER_SAVE" -> HubCyan
+                            else -> HubMuted
+                        },
+                        fontSize = 10.sp,
+                    )
+                    Text(
+                        "Доступ до Gateway: ${probeTransportLabel(state.gatewayProbeTransport)}",
+                        color = if (state.gatewayProbeTransport == "HTTPS_FALLBACK") HubCyan else HubMuted,
+                        fontSize = 10.sp,
+                    )
+                    Text(
+                        "Качество маршрута: ${routeQualityLabel(state.routeQualityLevel)}" +
+                            (state.routeQualityReason?.let { " · $it" } ?: ""),
+                        color = if (state.routeHealth == "UNSTABLE") HubError else HubMuted,
+                        fontSize = 10.sp,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = viewModel::probeGateway,
+                        enabled = state.gatewayHost.isNotBlank() &&
+                            !state.isProbing &&
+                            !state.isBoosting &&
+                            !state.isTunnelConnecting &&
+                            !state.isAutoSelecting &&
+                            (!state.autoSelectBestNode || state.routeRecommendation == "GATEWAY_ONLY"),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (state.isProbing) "Проверяем маршрут…" else "Проверить Gateway")
+                    }
                 }
             }
         }
+
         item {
             InfoCard("Профиль запуска: ${state.gameLaunchMode.title}", state.gameLaunchMode.description)
         }
@@ -1857,5 +1880,54 @@ private fun routeQualityLabel(value: String): String = when (value) {
     "GOOD" -> "хорошее"
     "FAIR" -> "среднее"
     "POOR" -> "плохое"
+    else -> value
+}
+
+
+private fun routeHealthLabel(value: String): String = when (value) {
+    "IDLE" -> "ожидание"
+    "CONNECTED" -> "подключён"
+    "GAME_ROUTE" -> "игровой маршрут"
+    "TRAFFIC" -> "есть трафик"
+    "RECONNECTING" -> "восстановление"
+    "RECONNECTED" -> "восстановлен"
+    "DIRECT_BETTER" -> "прямой лучше"
+    "NETWORK_CHANGED" -> "сеть изменилась"
+    "DEGRADED" -> "ухудшен"
+    "UNSTABLE" -> "нестабильный"
+    "NO_GAME_TRAFFIC" -> "нет трафика игры"
+    "DISCONNECT_FAILED" -> "ошибка отключения"
+    "VPN_CONFLICT" -> "конфликт VPN"
+    "CONNECT_TIMEOUT" -> "тайм-аут"
+    "OFFLINE" -> "нет интернета"
+    "DOWN" -> "отключён"
+    else -> value.lowercase(Locale.ROOT)
+}
+
+private fun boostModeLabel(value: String): String = when (value) {
+    "SMART" -> "умный"
+    "LOW_PING" -> "низкий ping"
+    "STABLE" -> "стабильный"
+    else -> value
+}
+
+private fun regionLabel(value: String): String =
+    if (value == "AUTO") "авто" else value
+
+private fun networkLabel(value: String?): String = when (value) {
+    null -> "—"
+    "Mobile" -> "мобильная"
+    "Wi-Fi" -> "Wi-Fi"
+    "Ethernet" -> "Ethernet"
+    else -> value
+}
+
+private fun recommendationLabel(value: String?): String = when (value) {
+    null -> "нет"
+    "BOOST" -> "через BOOST"
+    "DIRECT" -> "прямой маршрут"
+    "MANUAL_BETTER" -> "ручной Gateway лучше"
+    "MANUAL_WORSE" -> "ручной Gateway хуже"
+    "GATEWAY_ONLY" -> "только Gateway"
     else -> value
 }
