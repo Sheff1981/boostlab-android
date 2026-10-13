@@ -31,6 +31,7 @@ class InstalledAppsRepository(private val context: Context) {
                         label = info.loadLabel(pm).toString(),
                         packageName = info.activityInfo.packageName,
                         icon = icon,
+                        isGame = isGame,
                     ),
                     isGame = isGame,
                 )
