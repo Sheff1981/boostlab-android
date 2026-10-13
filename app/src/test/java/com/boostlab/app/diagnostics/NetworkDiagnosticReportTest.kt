@@ -16,6 +16,7 @@ class NetworkDiagnosticReportTest {
             routeQualityReason = "Jitter 27 ms",
             selectedGatewayId = "fra-1",
             selectedGatewayRegion = "europe",
+            gatewayProbeTransport = "HTTPS_FALLBACK",
             routeTargetId = "game-eu",
             networkTransport = "Wi-Fi",
             networkValidated = true,
@@ -35,6 +36,7 @@ class NetworkDiagnosticReportTest {
         assertTrue(report.contains("route_quality=DEGRADED"))
         assertTrue(report.contains("route_quality_reason=Jitter 27 ms"))
         assertTrue(report.contains("gateway_id=fra-1"))
+        assertTrue(report.contains("gateway_probe_transport=HTTPS_FALLBACK"))
         assertTrue(report.contains("route_rtt_ms=42"))
         assertFalse(report.contains("TOP-SECRET-ENROLLMENT"))
         assertFalse(report.contains("private-control.example"))
