@@ -57,6 +57,7 @@ import com.boostlab.app.voice.VoiceIceServer
 import com.boostlab.app.voice.WebRtcVoiceController
 import com.wireguard.android.backend.Tunnel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -65,6 +66,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import kotlin.math.abs
 
@@ -1868,7 +1870,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             runCatching {
-                val identity = identityStore.loadOrCreate()
+                withTimeout(CONNECT_WATCHDOG_MS) {
+                    val identity = identityStore.loadOrCreate()
                 var tunnelAddress = snapshot.tunnelAddress
 
                 val managedGateway = (
@@ -1923,7 +1926,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     selectedPackage = selectedApp.packageName,
                     mtu = selectedTunnelMtu,
                 )
-                tunnelController.connect(profile)
+                    tunnelController.connect(profile)
+                }
             }.onSuccess { tunnelState ->
                 val traffic = if (tunnelState == Tunnel.State.UP) {
                     runCatching {
@@ -1961,20 +1965,37 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     stopLiveMetrics()
                 }
             }.onFailure { error ->
-                if (error.message?.contains("handshake", ignoreCase = true) == true) {
+                val timedOut = error is TimeoutCancellationException
+                if (
+                    timedOut ||
+                    error.message?.contains("handshake", ignoreCase = true) == true
+                ) {
                     snapshot.selectedGatewayId?.let(::markGatewayFailure)
+                }
+                if (timedOut) {
+                    runCatching { tunnelController.disconnectVerified() }
                 }
                 stopLiveMetrics()
                 trafficBaselineRx = 0L
                 trafficBaselineTx = 0L
                 _state.value = _state.value.copy(
                     isTunnelConnecting = false,
+                    isPeerProvisioning = false,
                     isBoosting = false,
-                    tunnelError = "WireGuard connect failed: ${error::class.java.simpleName}",
+                    tunnelError = if (timedOut) {
+                        "Подключение не завершилось за 20 секунд"
+                    } else {
+                        "WireGuard connect failed: ${error::class.java.simpleName}"
+                    },
+                    serverLabel = if (timedOut) {
+                        "Gateway не ответил вовремя · попробуй другой маршрут"
+                    } else {
+                        _state.value.serverLabel
+                    },
                     tunnelRxBytes = 0L,
                     tunnelTxBytes = 0L,
                     gameTrafficVerified = false,
-                    routeHealth = "DOWN",
+                    routeHealth = if (timedOut) "CONNECT_TIMEOUT" else "DOWN",
                     routeProbeFailures = 0,
                 )
             }
@@ -3042,5 +3063,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val GATEWAY_FAILURE_COOLDOWN_MS = 120_000L
         private const val PINNED_RECONNECT_ATTEMPTS = 2
         private const val PINNED_RECONNECT_RETRY_MS = 750L
+        private const val CONNECT_WATCHDOG_MS = 20_000L
     }
 }
