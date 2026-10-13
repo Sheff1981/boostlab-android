@@ -9,7 +9,7 @@ import sqlite3
 import subprocess
 import threading
 import time
-from accounts import setup_accounts, register, login
+from accounts import setup_accounts, register, login, account_for_token
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from pathlib import Path
@@ -106,6 +106,16 @@ class Handler(BaseHTTPRequestHandler):
         return bool(ADMIN_TOKEN) and hmac.compare_digest(supplied, "Bearer " + ADMIN_TOKEN)
 
     def do_GET(self):
+        if self.path == "/v1/accounts/me":
+            authorization = self.headers.get("Authorization", "")
+            token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+            with LOCK, database() as conn:
+                account = account_for_token(conn, token)
+            if account is None:
+                self.respond(401, {"error": "unauthorized"})
+            else:
+                self.respond(200, account)
+            return
         if self.path == "/admin":
             html = Path(__file__).with_name("admin.html").read_bytes()
             self.send_response(200)
@@ -152,6 +162,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(400, {"error": "invalid_request"})
             except sqlite3.IntegrityError:
                 self.respond(409, {"error": "account_exists"})
+            return
+
+        if self.path == "/v1/accounts/logout":
+            authorization = self.headers.get("Authorization", "")
+            token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+            with LOCK, database() as conn:
+                account = account_for_token(conn, token)
+                if account:
+                    conn.execute("UPDATE accounts SET session_hash=NULL, session_expires_at=0 WHERE account_id=?",
+                                 (account["account_id"],))
+                    conn.commit()
+            self.respond(200, {"ok": True})
             return
 
         if self.path == "/admin/enrollment":
