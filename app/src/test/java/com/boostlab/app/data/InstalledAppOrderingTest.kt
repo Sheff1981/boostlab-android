@@ -2,38 +2,50 @@ package com.boostlab.app.data
 
 import com.boostlab.app.model.BoostApp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class InstalledAppOrderingTest {
     private val apps = listOf(
-        BoostApp(label = "PUBG Mobile", packageName = "com.pubg", icon = null),
-        BoostApp(label = "Brawl Stars", packageName = "com.brawl", icon = null),
-        BoostApp(label = "Unknown Game", packageName = "com.example.unknown", icon = null),
+        BoostApp(label = "PUBG Mobile", packageName = "com.pubg", icon = null, isGame = true),
+        BoostApp(label = "Brawl Stars", packageName = "com.brawl", icon = null, isGame = true),
+        BoostApp(label = "AndroidIDE", packageName = "com.itsaky.androidide", icon = null, isGame = false),
     )
 
     @Test
-    fun pinnedAppsComeFirstButDoNotHideOtherInstalledApps() {
+    fun defaultListShowsDetectedGamesAndPinnedManualApps() {
         val result = InstalledAppOrdering.visibleApps(
             apps = apps,
             pinnedPackages = setOf("com.pubg"),
             query = "",
         )
 
-        assertEquals(3, result.size)
+        assertEquals(2, result.size)
         assertEquals("com.pubg", result.first().packageName)
-        assertTrue(result.any { it.packageName == "com.example.unknown" })
+        assertFalse(result.any { it.packageName == "com.itsaky.androidide" })
     }
 
     @Test
-    fun searchStillFindsUnpinnedApps() {
+    fun manuallyPinnedNonGameRemainsAvailable() {
         val result = InstalledAppOrdering.visibleApps(
             apps = apps,
-            pinnedPackages = setOf("com.pubg"),
-            query = "unknown",
+            pinnedPackages = setOf("com.itsaky.androidide"),
+            query = "",
         )
 
-        assertEquals(listOf("com.example.unknown"), result.map { it.packageName })
+        assertTrue(result.any { it.packageName == "com.itsaky.androidide" })
+    }
+
+    @Test
+    fun searchCanFindUnpinnedNonGameForManualAdd() {
+        val result = InstalledAppOrdering.visibleApps(
+            apps = apps,
+            pinnedPackages = emptySet(),
+            query = "androidide",
+        )
+
+        assertEquals(listOf("com.itsaky.androidide"), result.map { it.packageName })
     }
 
     @Test
