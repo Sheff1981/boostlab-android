@@ -34,6 +34,7 @@ import com.boostlab.app.network.RouteIntelligence
 import com.boostlab.app.network.GatewayProvisionClient
 import com.boostlab.app.network.GatewayRouteQualityClient
 import com.boostlab.app.network.GatewayStatusClient
+import com.boostlab.app.network.AutoGatewayEligibility
 import com.boostlab.app.network.AutoRouteSelection
 import com.boostlab.app.network.GatewayCapacityPolicy
 import com.boostlab.app.network.GatewayMeasurement
@@ -1460,12 +1461,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     }.awaitAll().filterNotNull()
                 }
 
-                val eligibleAccess = accessMeasurements.filter {
-                    it.metrics.received > 0 &&
-                        it.score.isFinite() &&
-                        !it.node.wireGuardPublicKey.isNullOrBlank() &&
-                        it.node.wireGuardPort != null
-                }
+                val eligibleAccess = accessMeasurements.filter(
+                    AutoGatewayEligibility::isEligible,
+                )
                 if (eligibleAccess.isEmpty()) {
                     error("Финалисты не подтвердили стабильный маршрут")
                 }
