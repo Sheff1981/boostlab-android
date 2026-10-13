@@ -242,21 +242,21 @@ private fun GatewaySelectorPage(
         item {
             GatewaySection(title = "Auto", subtitle = "Сам выберет лучший маршрут") {
                 AutoGatewayRow(
-                    title = "Auto 1 · Free",
+                    title = "Auto 1 · Бесплатно",
                     subtitle = "Минимальный ping",
                     active = state.autoSelectBestNode && state.boostMode == "LOW_PING",
                     busy = state.isAutoSelecting,
                     onClick = { viewModel.selectAutoRoute("LOW_PING") },
                 )
                 AutoGatewayRow(
-                    title = "Auto 2 · Free",
+                    title = "Auto 2 · Бесплатно",
                     subtitle = "Smart · ping + jitter + loss",
                     active = state.autoSelectBestNode && state.boostMode == "SMART",
                     busy = state.isAutoSelecting,
                     onClick = { viewModel.selectAutoRoute("SMART") },
                 )
                 AutoGatewayRow(
-                    title = "Auto 3 · Free",
+                    title = "Auto 3 · Бесплатно",
                     subtitle = "Самый стабильный маршрут",
                     active = state.autoSelectBestNode && state.boostMode == "STABLE",
                     busy = state.isAutoSelecting,
@@ -316,7 +316,7 @@ private fun GatewaySelectorPage(
         if (state.gatewayDirectory.isNotEmpty()) {
             item {
                 Text(
-                    "Все узлы FREE · Auto сравнивает реальные маршруты и не включает VPN, если DIRECT быстрее.",
+                    "Все узлы бесплатные · Auto сравнивает реальные маршруты и не включает VPN, если прямой маршрут быстрее.",
                     color = HubMuted,
                     fontSize = 10.sp,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
@@ -533,7 +533,13 @@ private fun GamesPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Игры", "Каталог: ${viewModel.catalogGames.size} · установлено: ${viewModel.apps.size}") }
+        item {
+            PageHeader(
+                "Игры",
+                "Каталог: ${viewModel.catalogGames.size} · на телефоне: " +
+                    viewModel.apps.count { it.isGame || it.packageName in state.pinnedPackages },
+            )
+        }
         item {
             OutlinedTextField(
                 value = query,
@@ -549,9 +555,9 @@ private fun GamesPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
                 CatalogTab.entries.forEach { c ->
                     SelectChip(
                         text = when (c) {
-                            CatalogTab.HOT -> "Hot"
-                            CatalogTab.NEW -> "New"
-                            CatalogTab.ALL -> "All"
+                            CatalogTab.HOT -> "Популярные"
+                            CatalogTab.NEW -> "Новые"
+                            CatalogTab.ALL -> "Все"
                         },
                         selected = c == catalogTab,
                         onClick = { catalogTabName = c.name },
@@ -1649,7 +1655,7 @@ private fun NetworkHero(state: BoostState) {
             fontSize = 13.sp,
         )
         Spacer(Modifier.height(4.dp))
-        Text(state.selectedApp?.label ?: "Выбери приложение", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
+        Text(state.selectedApp?.label ?: "Выбери игру", color = Color.White, fontSize = 25.sp, fontWeight = FontWeight.Black)
         Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
