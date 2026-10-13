@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,6 +35,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var selected by remember { mutableStateOf<String?>(null) }
+            var search by remember { mutableStateOf("") }
+            val visibleGames = remember(search) { games.filter { it.second.contains(search.trim(), ignoreCase = true) || it.first.contains(search.trim(), ignoreCase = true) } }
             var status by remember { mutableStateOf("VPN не настроен") }
             MaterialTheme(colorScheme = darkColorScheme(primary = cyan, background = night, surface = panel)) {
                 Column(Modifier.fillMaxSize().background(night).padding(18.dp)) {
@@ -54,10 +58,17 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Spacer(Modifier.height(18.dp))
-                    Text("Приложения", color = Color.White, style = MaterialTheme.typography.titleLarge)
+                    Text("Приложения (${games.size})", color = Color.White, style = MaterialTheme.typography.titleLarge)
                     Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = search, onValueChange = { search = it }, label = { Text("Поиск игры") }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), modifier = Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(8.dp))
+                    if (selected != null) {
+                        Button(onClick = { packageManager.getLaunchIntentForPackage(selected!!)?.let { startActivity(it) } ?: run { status = "Не удалось открыть приложение" } }, modifier = Modifier.fillMaxWidth()) { Text("Открыть выбранную игру без BOOST") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (visibleGames.isEmpty()) Text("Приложения не найдены", color = Color.LightGray)
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(games) { (pkg, name) ->
+                        items(visibleGames) { (pkg, name) ->
                             Card(
                                 onClick = { selected = pkg },
                                 colors = CardDefaults.cardColors(containerColor = if (selected == pkg) Color(0xFF244A54) else panel),
