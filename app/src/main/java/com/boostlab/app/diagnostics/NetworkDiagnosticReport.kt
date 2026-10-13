@@ -18,6 +18,7 @@ object NetworkDiagnosticReport {
         appendLine("boost_mode=${state.boostMode}")
         appendLine("gateway_id=${state.selectedGatewayId ?: "-"}")
         appendLine("gateway_region=${state.selectedGatewayRegion ?: "-"}")
+        appendLine("gateway_probe_transport=${state.gatewayProbeTransport}")
         appendLine("route_target=${state.routeTargetId ?: "-"}")
         appendLine("network_transport=${state.networkTransport ?: "-"}")
         appendLine("network_validated=${state.networkValidated ?: "-"}")
