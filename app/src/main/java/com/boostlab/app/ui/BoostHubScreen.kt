@@ -869,16 +869,39 @@ private fun StatsPage(viewModel: BoostViewModel, state: BoostState, padding: Pad
             }
         }
         item {
-            InfoCard(
-                when {
-                    state.gameTrafficVerified -> "Игровой трафик подтверждён"
-                    state.routeHealth == "NO_GAME_TRAFFIC" ->
-                        "VPN подключён, но трафик выбранной игры не обнаружен"
-                    state.isBoosting -> "Handshake есть · ждём трафик игры"
-                    else -> "Проверка игрового трафика выключена"
-                },
-                "RX/TX — фактические байты WireGuard выбранной игры. При наличии игрового target Ping/P95/Jitter/Loss считаются для полного маршрута телефон → Gateway → игра.",
-            )
+            if (state.routeHealth == "NO_GAME_TRAFFIC") {
+                Panel {
+                    Text(
+                        "VPN подключён, но трафик выбранной игры не обнаружен",
+                        color = HubError,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                    )
+                    Spacer(Modifier.height(5.dp))
+                    Text(
+                        "BOOSTLAB не считает такую сессию успешной. Остановим туннель, подтвердим возврат обычной сети и заново проверим Auto-маршрут.",
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = viewModel::recoverNoGameTraffic,
+                        enabled = state.isBoosting && !state.isTunnelConnecting,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Остановить и перепроверить маршрут")
+                    }
+                }
+            } else {
+                InfoCard(
+                    when {
+                        state.gameTrafficVerified -> "Игровой трафик подтверждён"
+                        state.isBoosting -> "Handshake есть · ждём трафик игры"
+                        else -> "Проверка игрового трафика выключена"
+                    },
+                    "RX/TX — фактические байты WireGuard выбранной игры. При наличии игрового target Ping/P95/Jitter/Loss считаются для полного маршрута телефон → Gateway → игра.",
+                )
+            }
         }
         item {
             Panel {
