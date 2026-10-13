@@ -639,7 +639,7 @@ private fun BoostPage(
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Локальный Буст", "Выбери игру → BOOST → запуск") }
+        item { PageHeader("BOOSTLAB", "Выбери игру → VPN → запуск") }
         item { NetworkHero(state) }
         item {
             Panel {
@@ -792,10 +792,19 @@ private fun BoostPage(
         }
         item {
             PrimaryButton(
-                text = if (state.isGameLaunching) "Запускаем игру…" else "Запустить игру без VPN",
-                enabled = state.selectedApp != null && !state.isGameLaunching,
-                onClick = viewModel::boostAndLaunchGame,
+                text = when {
+                    state.isTunnelConnecting -> "VPN · Подключаем…"
+                    state.isBoosting -> "VPN подключён"
+                    else -> "BOOST · Подключить VPN"
+                },
+                enabled = state.selectedApp != null && serverConfigured &&
+                    !state.isTunnelConnecting && !state.isBoosting,
+                onClick = onRequestVpnPermission,
             )
+            if (!serverConfigured) {
+                Text("Сервер BOOSTLAB ещё не настроен", color = HubMuted, fontSize = 12.sp)
+            }
+            state.tunnelError?.let { Text(it, color = HubError, fontSize = 12.sp) }
         }
         if (serverConfigured) {
             item {
