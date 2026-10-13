@@ -38,7 +38,7 @@ jobs:
       - name: Build stable signed release APK
         if: ${{ env.HAS_SIGNING_KEY == 'true' }}
         run: |
-          echo "$BOOSTLAB_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/boostlab-release.jks"
+          printf "%s" "$BOOSTLAB_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/boostlab-release.jks"
           export BOOSTLAB_KEYSTORE_PATH="$RUNNER_TEMP/boostlab-release.jks"
           gradle --no-daemon :app:assembleRelease
           rm -f "$BOOSTLAB_KEYSTORE_PATH"
@@ -47,6 +47,10 @@ jobs:
           BOOSTLAB_KEYSTORE_PASSWORD: ${{ secrets.BOOSTLAB_KEYSTORE_PASSWORD }}
           BOOSTLAB_KEY_ALIAS: ${{ secrets.BOOSTLAB_KEY_ALIAS }}
           BOOSTLAB_KEY_PASSWORD: ${{ secrets.BOOSTLAB_KEY_PASSWORD }}
+      - name: Verify release APK signature
+        if: ${{ env.HAS_SIGNING_KEY == 'true' }}
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         if: ${{ env.HAS_SIGNING_KEY == 'true' }}
         with:
