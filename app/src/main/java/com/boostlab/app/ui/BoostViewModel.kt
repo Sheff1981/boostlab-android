@@ -37,6 +37,10 @@ import com.boostlab.app.network.GatewayStatusClient
 import com.boostlab.app.network.AutoGatewayEligibility
 import com.boostlab.app.network.AutoRouteSelection
 import com.boostlab.app.network.GatewayCapacityPolicy
+import com.boostlab.app.network.RouteMetrics
+import com.boostlab.app.network.HttpsGatewayProbe
+import com.boostlab.app.network.GatewayAccessProbeResult
+import com.boostlab.app.network.GatewayAccessProbePolicy
 import com.boostlab.app.network.GatewayMeasurement
 import com.boostlab.app.network.GatewayNode
 import com.boostlab.app.network.GameRouteTarget
@@ -85,6 +89,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private val eventStore = EventStore(appContext)
     private val socialStore = SocialStore(appContext)
     private val routeProbe = UdpRouteProbe()
+    private val httpsGatewayProbe = HttpsGatewayProbe()
     private val directRouteProbe = TcpRouteProbe()
     private val gatewayRouteQuality = GatewayRouteQualityClient()
     private val gatewayStatusClient = GatewayStatusClient()
@@ -1406,15 +1411,18 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     nodes.map { node ->
                         async {
                             runCatching {
-                                val metrics = routeProbe.measure(
+                                val access = measureGatewayAccess(
                                     host = node.host,
-                                    port = node.udpPort,
+                                    udpPort = node.udpPort,
+                                    routeApiUrl = node.routeApiUrl,
                                     samples = AUTO_QUICK_SAMPLES,
                                 )
                                 GatewayMeasurement(
                                     node = node,
-                                    metrics = metrics,
-                                    score = routeScore(metrics, snapshot.boostMode),
+                                    metrics = access.metrics,
+                                    score = routeScore(access.metrics, snapshot.boostMode) +
+                                        GatewayAccessProbePolicy.scorePenalty(access.transport),
+                                    probeTransport = access.transport,
                                 )
                             }.getOrNull()
                         }
@@ -1438,9 +1446,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     finalists.map { node ->
                         async {
                             runCatching {
-                                val metrics = routeProbe.measure(
+                                val access = measureGatewayAccess(
                                     host = node.host,
-                                    port = node.udpPort,
+                                    udpPort = node.udpPort,
+                                    routeApiUrl = node.routeApiUrl,
                                     samples = AUTO_FINAL_SAMPLES,
                                 )
                                 val runtimeStatus = node.routeApiUrl?.let { routeApiUrl ->
@@ -1452,9 +1461,12 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                 val capacityPenalty = GatewayCapacityPolicy.penalty(runtimeStatus)
                                 GatewayMeasurement(
                                     node = node,
-                                    metrics = metrics,
-                                    score = routeScore(metrics, snapshot.boostMode) + capacityPenalty,
+                                    metrics = access.metrics,
+                                    score = routeScore(access.metrics, snapshot.boostMode) +
+                                        capacityPenalty +
+                                        GatewayAccessProbePolicy.scorePenalty(access.transport),
                                     capacityPenalty = capacityPenalty,
+                                    probeTransport = access.transport,
                                 )
                             }.getOrNull()
                         }
@@ -1763,21 +1775,25 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 val snapshot = _state.value
-                val accessMetrics = routeProbe.measure(
+                val access = measureGatewayAccess(
                     host = snapshot.gatewayHost,
-                    port = snapshot.gatewayPort,
+                    udpPort = snapshot.gatewayPort,
+                    routeApiUrl = snapshot.selectedRouteApiUrl,
+                    samples = UdpRouteProbe.DEFAULT_SAMPLES,
                 )
                 val manualValidation = validateManualGatewayRoute(
                     snapshot = snapshot,
-                    accessMetrics = accessMetrics,
+                    accessMetrics = access.metrics,
                 )
-                accessMetrics to manualValidation
-            }.onSuccess { (metrics, validation) ->
+                access to manualValidation
+            }.onSuccess { (access, validation) ->
+                val metrics = access.metrics
                 val direct = validation?.directMetrics
                 val boosted = validation?.boostedMetrics
                 val gain = validation?.gainMs
                 _state.value = _state.value.copy(
                     isProbing = false,
+                    gatewayProbeTransport = access.transport,
                     routeRecommendation = validation?.recommendation ?: "GATEWAY_ONLY",
                     routeTargetId = validation?.target?.id,
                     routeTargetHost = validation?.target?.host,
@@ -2339,13 +2355,15 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val accessResult = runCatching {
-                    routeProbe.measure(
+                    measureGatewayAccess(
                         host = snapshot.gatewayHost,
-                        port = snapshot.gatewayPort,
+                        udpPort = snapshot.gatewayPort,
+                        routeApiUrl = snapshot.selectedRouteApiUrl,
                         samples = probeBudget.accessSamples,
                     )
                 }
-                val accessMetrics = accessResult.getOrNull()
+                val access = accessResult.getOrNull()
+                val accessMetrics = access?.metrics
 
                 if (accessMetrics != null) {
                     consecutiveProbeFailures =
@@ -2458,6 +2476,8 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             powerSaveMode = liveReadiness?.powerSaveMode ?: _state.value.powerSaveMode,
                             thermalStatus = liveReadiness?.thermalStatus ?: _state.value.thermalStatus,
                             liveProbeMode = probeBudget.label,
+                            gatewayProbeTransport = access?.transport
+                                ?: _state.value.gatewayProbeTransport,
                             routeQualityLevel = routeQuality.level,
                             routeQualityReason = routeQuality.reason,
                             routeHealth = when {
@@ -2976,6 +2996,47 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    private suspend fun measureGatewayAccess(
+        host: String,
+        udpPort: Int,
+        routeApiUrl: String?,
+        samples: Int,
+    ): GatewayAccessProbeResult {
+        val udp = runCatching {
+            routeProbe.measure(
+                host = host,
+                port = udpPort,
+                samples = samples,
+            )
+        }.getOrElse {
+            RouteMetrics(
+                medianRttMs = null,
+                jitterMs = null,
+                packetLossPct = 100.0,
+                sent = samples,
+                received = 0,
+                p95RttMs = null,
+            )
+        }
+
+        if (udp.received > 0 && udp.medianRttMs != null) {
+            return GatewayAccessProbePolicy.choose(udp, null)
+        }
+
+        val https = routeApiUrl
+            ?.takeIf { it.startsWith("https://") }
+            ?.let { url ->
+                runCatching {
+                    httpsGatewayProbe.measure(
+                        routeApiUrl = url,
+                        samples = samples.coerceIn(1, HTTPS_FALLBACK_MAX_SAMPLES),
+                    )
+                }.getOrNull()
+            }
+
+        return GatewayAccessProbePolicy.choose(udp, https)
+    }
+
     private suspend fun tryWarmRememberedRoute(
         snapshot: BoostState,
         node: GatewayNode,
@@ -2990,19 +3051,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val routeApiUrl = requireNotNull(node.routeApiUrl)
-        val (accessMetrics, runtimeStatus) = coroutineScope {
-            val access = async {
-                routeProbe.measure(
+        val (access, runtimeStatus) = coroutineScope {
+            val accessProbe = async {
+                measureGatewayAccess(
                     host = node.host,
-                    port = node.udpPort,
+                    udpPort = node.udpPort,
+                    routeApiUrl = routeApiUrl,
                     samples = WARM_ROUTE_ACCESS_SAMPLES,
                 )
             }
             val status = async {
                 gatewayStatusClient.fetch(routeApiUrl)
             }
-            access.await() to status.await()
+            accessProbe.await() to status.await()
         }
+        val accessMetrics = access.metrics
 
         if (
             accessMetrics.received <= 0 ||
@@ -3012,7 +3075,9 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         val capacityPenalty = GatewayCapacityPolicy.penalty(runtimeStatus)
-        val accessScore = routeScore(accessMetrics, snapshot.boostMode) + capacityPenalty
+        val accessScore = routeScore(accessMetrics, snapshot.boostMode) +
+            capacityPenalty +
+            GatewayAccessProbePolicy.scorePenalty(access.transport)
         if (!accessScore.isFinite()) {
             return null
         }
@@ -3098,6 +3163,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                 metrics = best.boostedMetrics,
                 score = best.boostedScore,
                 capacityPenalty = capacityPenalty,
+                probeTransport = access.transport,
             ),
             recommendation = "BOOST",
             target = best.target,
@@ -3254,5 +3320,6 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         private const val PINNED_RECONNECT_ATTEMPTS = 2
         private const val PINNED_RECONNECT_RETRY_MS = 750L
         private const val CONNECT_WATCHDOG_MS = 20_000L
+        private const val HTTPS_FALLBACK_MAX_SAMPLES = 4
     }
 }
