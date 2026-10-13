@@ -112,6 +112,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
     private var deviceAccessToken: String? = null
     private var deviceAccessTokenExpiresAtEpochMs = 0L
     private var authenticatedDeviceId: String? = null
+    private var recheckRouteAfterDisconnect = false
     private val gatewayCooldownUntil = mutableMapOf<String, Long>()
 
     private val _state = MutableStateFlow(BoostState())
@@ -2062,6 +2063,18 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun recoverNoGameTraffic() {
+        val snapshot = _state.value
+        if (
+            snapshot.routeHealth != "NO_GAME_TRAFFIC" ||
+            !snapshot.isBoosting ||
+            snapshot.isTunnelConnecting
+        ) return
+
+        recheckRouteAfterDisconnect = true
+        disconnectTunnel()
+    }
+
     fun disconnectTunnel() {
         if (_state.value.isTunnelConnecting) return
 
@@ -2127,8 +2140,18 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             "BOOSTLAB отключён, но найден внешний VPN"
                         },
                     )
+
+                    val shouldRecheck =
+                        recheckRouteAfterDisconnect &&
+                            routeRestored &&
+                            readiness.networkValidated != false
+                    recheckRouteAfterDisconnect = false
+                    if (shouldRecheck) {
+                        selectAutoRoute(_state.value.boostMode)
+                    }
                 }
                 .onFailure { error ->
+                    recheckRouteAfterDisconnect = false
                     _state.value = _state.value.copy(
                         isTunnelConnecting = false,
                         tunnelError = "WireGuard disconnect verify failed: ${error::class.java.simpleName}",
