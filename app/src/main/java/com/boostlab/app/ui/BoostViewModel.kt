@@ -2311,7 +2311,11 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         if (accessMetrics.received > 0) 0 else consecutiveProbeFailures + 1
 
                     val intelligenceReady =
-                        snapshot.routeRecommendation == "BOOST" &&
+                        snapshot.routeRecommendation in setOf(
+                            "BOOST",
+                            "MANUAL_BETTER",
+                            "MANUAL_WORSE",
+                        ) &&
                             !snapshot.selectedRouteApiUrl.isNullOrBlank() &&
                             !snapshot.routeTargetId.isNullOrBlank() &&
                             !snapshot.routeTargetHost.isNullOrBlank() &&
