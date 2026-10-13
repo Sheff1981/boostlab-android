@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+from accounts import setup_accounts, register, login
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from pathlib import Path
@@ -46,6 +47,7 @@ def database():
     ):
         if name not in columns:
             conn.execute(f"ALTER TABLE devices ADD COLUMN {name} {definition}")
+    setup_accounts(conn)
     conn.commit()
     return conn
 
@@ -136,6 +138,22 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(404, {"error": "not_found"})
 
     def do_POST(self):
+        if self.path in ("/v1/accounts/register", "/v1/accounts/login"):
+            try:
+                payload = self.body()
+                with LOCK, database() as conn:
+                    if self.path.endswith("/register"):
+                        account_id = register(conn, payload.get("email"), payload.get("password"))
+                        self.respond(201, {"account_id": account_id})
+                    else:
+                        result = login(conn, payload.get("email"), payload.get("password"))
+                        self.respond(200, result) if result else self.respond(401, {"error": "invalid_credentials"})
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            except sqlite3.IntegrityError:
+                self.respond(409, {"error": "account_exists"})
+            return
+
         if self.path == "/admin/enrollment":
             if not self.authorized():
                 self.respond(403, {"error": "forbidden"})
