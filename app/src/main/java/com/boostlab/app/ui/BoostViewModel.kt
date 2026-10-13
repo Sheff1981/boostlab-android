@@ -1597,6 +1597,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                                 eligibleAccess,
                                 it.node.id,
                             ),
+                            probeTransport = accessProbeTransportForNode(
+                                eligibleAccess,
+                                it.node.id,
+                            ),
                         )
                     },
                     bestCandidate = GatewayMeasurement(
@@ -1604,6 +1608,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         metrics = bestCandidate.boostedMetrics,
                         score = bestCandidate.boostedScore,
                         capacityPenalty = accessPenaltyForNode(
+                            eligibleAccess,
+                            bestCandidate.node.id,
+                        ),
+                        probeTransport = accessProbeTransportForNode(
                             eligibleAccess,
                             bestCandidate.node.id,
                         ),
@@ -1623,6 +1631,10 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                             metrics = chosenCandidate.boostedMetrics,
                             score = chosenCandidate.boostedScore,
                             capacityPenalty = accessPenaltyForNode(
+                                eligibleAccess,
+                                chosenCandidate.node.id,
+                            ),
+                            probeTransport = accessProbeTransportForNode(
                                 eligibleAccess,
                                 chosenCandidate.node.id,
                             ),
@@ -1648,6 +1660,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                         selectedGatewayId = null,
                         selectedGatewayRegion = null,
                         selectedRouteApiUrl = null,
+                        gatewayProbeTransport = "NONE",
                         routeRecommendation = "DIRECT",
                         routeDecisionTransport = selectionTransport,
                         routeDecisionAtEpochMs = System.currentTimeMillis(),
@@ -1692,6 +1705,7 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
                     selectedGatewayId = gateway.node.id,
                     selectedGatewayRegion = gateway.node.region,
                     selectedRouteApiUrl = gateway.node.routeApiUrl,
+                    gatewayProbeTransport = gateway.probeTransport,
                     routeRecommendation = selection.recommendation,
                     routeDecisionTransport = selectionTransport,
                     routeDecisionAtEpochMs = System.currentTimeMillis(),
@@ -2786,12 +2800,21 @@ class BoostViewModel(application: Application) : AndroidViewModel(application) {
             routeProbeFailures = 0,
             routeQualityLevel = "UNKNOWN",
             routeQualityReason = null,
+            gatewayProbeTransport = "NONE",
             gameTrafficVerified = false,
             selectedGatewayId = if (clearSelectedGateway) null else snapshot.selectedGatewayId,
             selectedGatewayRegion = if (clearSelectedGateway) null else snapshot.selectedGatewayRegion,
             selectedRouteApiUrl = if (clearSelectedGateway) null else snapshot.selectedRouteApiUrl,
             tunnelError = null,
         )
+    }
+
+    private fun accessProbeTransportForNode(
+        measurements: List<GatewayMeasurement>,
+        nodeId: String,
+    ): String {
+        return measurements.firstOrNull { it.node.id == nodeId }?.probeTransport
+            ?: GatewayAccessProbePolicy.UDP
     }
 
     private fun accessPenaltyForNode(
