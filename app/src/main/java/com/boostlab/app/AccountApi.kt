@@ -6,6 +6,20 @@ import java.net.URL
 
 internal object AccountApi {
     const val BASE_URL = "https://212.193.15.139"
+    fun authenticated(path: String, token: String, method: String = "GET"): JSONObject {
+        val connection = URL(BASE_URL + path).openConnection() as HttpURLConnection
+        connection.requestMethod = method
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
+        connection.setRequestProperty("Authorization", "Bearer " + token)
+        try {
+            if (connection.responseCode !in 200..299) throw IllegalStateException("Сессия истекла или сервер недоступен (HTTP ${connection.responseCode})")
+            return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     fun request(path: String, email: String, password: String): JSONObject {
         val connection = URL(BASE_URL + path).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
