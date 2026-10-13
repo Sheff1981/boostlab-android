@@ -1,0 +1,37 @@
+package com.boostlab.app
+
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+
+internal object AccountApi {
+    const val BASE_URL = "https://212.193.15.139"
+    fun request(path: String, email: String, password: String): JSONObject {
+        val connection = URL(BASE_URL + path).openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
+        connection.doOutput = true
+        connection.setRequestProperty("Content-Type", "application/json")
+        try {
+            connection.outputStream.use {
+                it.write(JSONObject().put("email", email).put("password", password)
+                    .toString().toByteArray(Charsets.UTF_8))
+            }
+            val status = connection.responseCode
+            if (status !in 200..299) {
+                val message = when (status) {
+                    400 -> "Проверь email и пароль: от 8 символов, заглавная и строчная буква, цифра"
+                    401 -> "Неверный email или пароль"
+                    409 -> "Такой email уже зарегистрирован"
+                    429 -> "Слишком много попыток. Попробуй позже"
+                    else -> "Ошибка сервера: HTTP $status"
+                }
+                throw IllegalStateException(message)
+            }
+            return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            connection.disconnect()
+        }
+    }
+}
