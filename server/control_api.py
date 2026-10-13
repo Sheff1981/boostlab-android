@@ -29,7 +29,7 @@ def database():
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""CREATE TABLE IF NOT EXISTS enrollments(
         token_hash TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0,
-        expires_at INTEGER NOT NULL DEFAULT 0""")
+        expires_at INTEGER NOT NULL DEFAULT 0)""")
     conn.execute("""CREATE TABLE IF NOT EXISTS devices(
         device_id TEXT PRIMARY KEY, public_key TEXT UNIQUE NOT NULL,
         ip TEXT UNIQUE NOT NULL, enabled INTEGER NOT NULL DEFAULT 1)""")
@@ -84,6 +84,23 @@ class Handler(BaseHTTPRequestHandler):
         return bool(ADMIN_TOKEN) and hmac.compare_digest(supplied, "Bearer " + ADMIN_TOKEN)
 
     def do_GET(self):
+        if self.path == "/admin/summary":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            with LOCK, database() as conn:
+                total = conn.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
+                enabled = conn.execute("SELECT COUNT(*) FROM devices WHERE enabled=1").fetchone()[0]
+            self.respond(200, {"total_devices": total, "enabled_devices": enabled})
+            return
+        if self.path == "/admin/devices":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            with LOCK, database() as conn:
+                rows = conn.execute("SELECT device_id, ip, enabled FROM devices ORDER BY rowid DESC LIMIT 500").fetchall()
+            self.respond(200, {"devices": [{"id": row[0], "vpn_ip": row[1], "enabled": bool(row[2])} for row in rows]})
+            return
         if self.path == "/health":
             self.respond(200, {"status": "ok"})
         else:
