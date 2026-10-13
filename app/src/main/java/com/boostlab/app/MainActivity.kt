@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
     }
     private fun requestConnect() {
         if (importedConfig == null) {
-            importConfig.launch("*/*")
+            updateStatus("Автоматическая настройка VPN пока недоступна. Импорт файла не требуется.")
             return
         }
         val intent = VpnService.prepare(this)
