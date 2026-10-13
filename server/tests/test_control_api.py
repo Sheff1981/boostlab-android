@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import sys
 import threading
 import unittest
 from unittest.mock import patch
@@ -11,6 +12,7 @@ from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "control_api.py"
+sys.path.insert(0, str(MODULE_PATH.parent))
 spec = importlib.util.spec_from_file_location("boostlab_control", MODULE_PATH)
 api = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(api)
