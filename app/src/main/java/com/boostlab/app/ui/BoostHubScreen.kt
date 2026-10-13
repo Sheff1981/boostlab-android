@@ -792,7 +792,7 @@ private fun BoostPage(
         }
         item {
             PrimaryButton(
-                text = if (state.isGameLaunching) "Запускаем…" else "BOOST · ЗАПУСТИТЬ",
+                text = if (state.isGameLaunching) "Запускаем игру…" else "Запустить игру без VPN",
                 enabled = state.selectedApp != null && !state.isGameLaunching,
                 onClick = viewModel::boostAndLaunchGame,
             )
@@ -1484,8 +1484,8 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
         contentPadding = PaddingValues(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PageHeader("Я", "Настройки BOOSTLAB · без VIP и платных ограничений") }
-        item { InfoCard("Аккаунт", "Локальный профиль · ${state.localUserId} · все функции бесплатны") }
+        item { PageHeader("Я", "Профиль и настройки BOOSTLAB") }
+        item { InfoCard("Аккаунт", "Устройство · ${state.localUserId} · подписка пока не подключена") }
 
         item {
             Panel {
@@ -1609,6 +1609,12 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
         }
 
         item {
+            OutlinedButton(onClick = viewModel::toggleAdvancedSettings, modifier = Modifier.fillMaxWidth()) {
+                Text(if (state.showAdvancedSettings) "Скрыть технические настройки" else "Технические настройки")
+            }
+        }
+        if (state.showAdvancedSettings) {
+        item {
             Panel {
                 Text("Серверы / Nodes", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text(state.serverLabel, color = HubMuted, fontSize = 12.sp)
@@ -1689,6 +1695,8 @@ private fun ProfilePage(viewModel: BoostViewModel, state: BoostState, padding: P
                     }
                 }
             }
+        }
+
         }
 
         item {
