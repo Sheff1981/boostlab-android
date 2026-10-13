@@ -16,7 +16,7 @@ import java.net.URL
  * Production must store the private key using Android Keystore-backed encryption.
  */
 internal object DeviceEnrollment {
-    data class Result(val config: Config, val deviceId: String)
+    data class Result(val config: Config, val deviceId: String, val linkToken: String)
 
     fun enroll(apiUrl: String, token: String): Result {
         require(apiUrl.startsWith("https://")) { "HTTPS is required" }
@@ -51,7 +51,7 @@ internal object DeviceEnrollment {
                 .setPersistentKeepalive(25)
                 .build()
             return Result(Config.Builder().setInterface(interfaceConfig).addPeer(peer).build(),
-                response.getString("device_id"))
+                response.getString("device_id"), response.getString("link_token"))
         } finally {
             connection.disconnect()
         }
