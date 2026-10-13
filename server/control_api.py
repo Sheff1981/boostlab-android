@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""BOOSTLAB MVP control plane. Run behind HTTPS reverse proxy, never directly on public IP."""
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import sqlite3
+import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
+from pathlib import Path
+
+DB = Path(os.environ.get("BOOSTLAB_DB", "/var/lib/boostlab/control.sqlite3"))
+ADMIN_TOKEN = os.environ.get("BOOSTLAB_ADMIN_TOKEN", "")
+PUBLIC_ENDPOINT = os.environ.get("BOOSTLAB_GATEWAY_ENDPOINT", "")
+SERVER_PUBLIC_KEY = os.environ.get("BOOSTLAB_WG_PUBLIC_KEY", "")
+WG_INTERFACE = os.environ.get("BOOSTLAB_WG_INTERFACE", "wg0")
+LISTEN_HOST = os.environ.get("BOOSTLAB_LISTEN_HOST", "127.0.0.1")
+LISTEN_PORT = int(os.environ.get("BOOSTLAB_LISTEN_PORT", "8787"))
+LOCK = threading.RLock()
+
+
+def database():
+    DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("""CREATE TABLE IF NOT EXISTS enrollments(
+        token_hash TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS devices(
+        device_id TEXT PRIMARY KEY, public_key TEXT UNIQUE NOT NULL,
+        ip TEXT UNIQUE NOT NULL, enabled INTEGER NOT NULL DEFAULT 1)""")
+    conn.commit()
+    return conn
+
+
+def validate_public_key(value):
+    import base64
+    if not isinstance(value, str):
+        return False
+    try:
+        decoded = base64.b64decode(value, validate=True)
+        return len(decoded) == 32 and base64.b64encode(decoded).decode() == value
+    except (ValueError, Exception):
+        return False
+
+
+def hash_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def add_peer(public_key, address):
+    # No shell interpolation: subprocess arguments are separate.
+    subprocess.run(
+        ["wg", "set", WG_INTERFACE, "peer", public_key, "allowed-ips", address + "/32"],
+        check=True, capture_output=True, timeout=10,
+    )
+
+
+class Handler(BaseHTTPRequestHandler):
+    def respond(self, status, data):
+        raw = json.dumps(data).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def body(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length < 1 or length > 4096:
+            raise ValueError("Invalid request size")
+        return json.loads(self.rfile.read(length))
+
+    def authorized(self):
+        supplied = self.headers.get("Authorization", "")
+        return bool(ADMIN_TOKEN) and hmac.compare_digest(supplied, "Bearer " + ADMIN_TOKEN)
+
+    def do_GET(self):
+        if self.path == "/health":
+            self.respond(200, {"status": "ok"})
+        else:
+            self.respond(404, {"error": "not_found"})
+
+    def do_POST(self):
+        if self.path == "/admin/enrollment":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            token = secrets.token_urlsafe(32)
+            with LOCK, database() as conn:
+                conn.execute("INSERT INTO enrollments(token_hash) VALUES(?)", (hash_token(token),))
+                conn.commit()
+            self.respond(201, {"enrollment_token": token})
+            return
+
+        if self.path != "/v1/devices/enroll":
+            self.respond(404, {"error": "not_found"})
+            return
+        try:
+            body = self.body()
+            token = body.get("enrollment_token", "")
+            public_key = body.get("public_key", "")
+            if not isinstance(token, str) or len(token) < 32 or not validate_public_key(public_key):
+                self.respond(400, {"error": "invalid_input"})
+                return
+            if not PUBLIC_ENDPOINT or not SERVER_PUBLIC_KEY:
+                self.respond(503, {"error": "gateway_unconfigured"})
+                return
+            with LOCK, database() as conn:
+                row = conn.execute("SELECT used FROM enrollments WHERE token_hash=?", (hash_token(token),)).fetchone()
+                if row is None or row[0]:
+                    self.respond(403, {"error": "invalid_enrollment"})
+                    return
+                allocated = {row[0] for row in conn.execute("SELECT ip FROM devices")}
+                address = next((f"10.77.{i // 253}.{i % 253 + 2}" for i in range(1, 60000)
+                                if f"10.77.{i // 253}.{i % 253 + 2}" not in allocated
+                                and i // 253 <= 255), None)
+                if not address or ip_address(address) not in __import__("ipaddress").ip_network("10.77.0.0/16"):
+                    self.respond(503, {"error": "pool_exhausted"})
+                    return
+                device_id = secrets.token_hex(16)
+                # Configure peer before committing enrollment; a failure leaves token usable.
+                add_peer(public_key, address)
+                conn.execute("INSERT INTO devices(device_id, public_key, ip) VALUES(?,?,?)",
+                             (device_id, public_key, address))
+                conn.execute("UPDATE enrollments SET used=1 WHERE token_hash=?", (hash_token(token),))
+                conn.commit()
+            self.respond(201, {"device_id": device_id, "address": address + "/32",
+                               "gateway_endpoint": PUBLIC_ENDPOINT, "gateway_public_key": SERVER_PUBLIC_KEY})
+        except (ValueError, TypeError, json.JSONDecodeError):
+            self.respond(400, {"error": "invalid_request"})
+        except (sqlite3.IntegrityError, subprocess.SubprocessError, OSError):
+            self.respond(503, {"error": "provisioning_failed"})
+
+
+if __name__ == "__main__":
+    if not ADMIN_TOKEN or len(ADMIN_TOKEN) < 32:
+        raise SystemExit("Set a random BOOSTLAB_ADMIN_TOKEN of at least 32 characters")
+    with database():
+        pass
+    ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
