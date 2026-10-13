@@ -12,10 +12,13 @@ object InstalledAppOrdering {
 
         return apps
             .asSequence()
-            .filter {
-                normalizedQuery.isBlank() ||
-                    it.label.contains(normalizedQuery, ignoreCase = true) ||
-                    it.packageName.contains(normalizedQuery, ignoreCase = true)
+            .filter { app ->
+                if (normalizedQuery.isBlank()) {
+                    app.isGame || app.packageName in pinnedPackages
+                } else {
+                    app.label.contains(normalizedQuery, ignoreCase = true) ||
+                        app.packageName.contains(normalizedQuery, ignoreCase = true)
+                }
             }
             .distinctBy { it.packageName }
             .sortedWith(
