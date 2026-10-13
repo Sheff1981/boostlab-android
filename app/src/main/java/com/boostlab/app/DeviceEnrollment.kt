@@ -31,7 +31,10 @@ internal object DeviceEnrollment {
         connection.setRequestProperty("Accept", "application/json")
         connection.outputStream.use { stream ->
             stream.write(JSONObject().put("enrollment_token", token)
-                .put("public_key", identity.publicKey.toBase64()).toString().toByteArray(Charsets.UTF_8))
+                .put("public_key", identity.publicKey.toBase64())
+                .put("manufacturer", android.os.Build.MANUFACTURER)
+                .put("model", android.os.Build.MODEL)
+                .put("android_version", android.os.Build.VERSION.RELEASE).toString().toByteArray(Charsets.UTF_8))
         }
         try {
             require(connection.responseCode == 201) { "Enrollment HTTP ${connection.responseCode}" }
