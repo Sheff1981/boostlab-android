@@ -637,6 +637,53 @@ private fun BoostPage(
     ) {
         item { PageHeader("Локальный Буст", "Выбери игру → BOOST → запуск") }
         item { NetworkHero(state) }
+        item {
+            Panel {
+                Text("Живое соединение", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                val connected = state.isBoosting
+                val qualityBars = if (!connected || state.pingMs == null) 0 else when {
+                    (state.packetLossPct ?: 0.0) >= 20.0 -> 1
+                    state.pingMs <= 45 && (state.packetLossPct ?: 0.0) < 2.0 -> 4
+                    state.pingMs <= 90 && (state.packetLossPct ?: 0.0) < 5.0 -> 3
+                    else -> 2
+                }
+                Text(
+                    when {
+                        state.isTunnelConnecting -> "VPN: подключение…"
+                        connected -> "VPN: подключён · ${state.gatewayHost}"
+                        state.externalVpnDetected -> "VPN BOOSTLAB: выключен · активен другой VPN"
+                        else -> "VPN: отключён"
+                    },
+                    color = if (connected) HubMint else HubMuted,
+                    fontSize = 12.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.Bottom) {
+                    (1..4).forEach { level ->
+                        Box(
+                            Modifier
+                                .width(10.dp)
+                                .height((6 + level * 5).dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(if (qualityBars >= level) HubMint else HubPanel2),
+                        )
+                    }
+                    Text(
+                        if (qualityBars == 0) "Качество: нет измерений" else "Качество: ${qualityBars}/4 · RTT до Gateway",
+                        color = HubMuted,
+                        fontSize = 11.sp,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricBox("PING", if (connected) state.pingMs?.let { "${it} ms" } ?: "—" else "—", Modifier.weight(1f))
+                    MetricBox("JITTER", if (connected) state.jitterMs?.let { "${it} ms" } ?: "—" else "—", Modifier.weight(1f))
+                    MetricBox("LOSS", if (connected) state.packetLossPct?.let { String.format(Locale.US, "%.1f%%", it) } ?: "—" else "—", Modifier.weight(1f))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MetricBox("VPN RX", if (connected) "${state.tunnelRxBytes} B" else "—", Modifier.weight(1f))
+                    MetricBox("VPN TX", if (connected) "${state.tunnelTxBytes} B" else "—", Modifier.weight(1f))
+                }
+            }
+        }
         if (!serverConfigured) {
             item {
                 InfoCard(
