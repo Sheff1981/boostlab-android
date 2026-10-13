@@ -110,6 +110,29 @@ class ControlTests(unittest.TestCase):
         })
         self.assertEqual(status, 409)
 
+    def test_link_requires_correct_proof(self):
+        _, created = self.request("/v1/accounts/register", {"email": "owner@example.com", "password": "SecurePass123"})
+        _, session = self.request("/v1/accounts/login", {"email": "owner@example.com", "password": "SecurePass123"})
+        _, issued = self.request("/admin/enrollment", {}, auth=True)
+        with patch.object(api, "add_peer"):
+            _, device = self.request("/v1/devices/enroll", {
+                "enrollment_token": issued["enrollment_token"], "public_key": "A"*43+"="
+            })
+        import urllib.request
+        import urllib.error
+        def link(proof):
+            req = urllib.request.Request(self.url + "/v1/accounts/devices/link",
+                data=json.dumps({"device_id": device["device_id"], "link_token": proof}).encode(),
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + session["session_token"]})
+            try:
+                with urllib.request.urlopen(req, timeout=3) as response:
+                    return response.status
+            except urllib.error.HTTPError as error:
+                return error.code
+        self.assertEqual(link("x"*43), 403)
+        self.assertEqual(link(device["link_token"]), 200)
+        self.assertEqual(link(device["link_token"]), 403)
+
     def test_device_list_requires_session(self):
         status, _ = self.request("/v1/accounts/devices")
         self.assertEqual(status, 401)
