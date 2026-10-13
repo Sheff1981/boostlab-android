@@ -22,7 +22,7 @@ th{color:#9cbbd2}
 <div class="controls"><input id="token" type="password" autocomplete="off" placeholder="Администраторский токен"><button id="load">Обновить</button></div>
 <p id="status" role="status"></p>
 <div class="cards"><div class="card">Зарегистрировано<strong id="total">—</strong></div><div class="card">Разрешён доступ<strong id="enabled">—</strong></div></div>
-<h2>Устройства</h2><div style="overflow:auto"><table><thead><tr><th>ID</th><th>Телефон</th><th>Адрес VPN</th><th>Осталось</th><th>Статус</th></tr></thead><tbody id="devices"></tbody></table></div>
+<h2>Устройства</h2><div style="overflow:auto"><table><thead><tr><th>ID</th><th>Телефон</th><th>Адрес VPN</th><th>Осталось</th><th>Статус</th><th>Управление</th></tr></thead><tbody id="devices"></tbody></table></div>
 <script>
 document.getElementById('load').onclick=async()=>{
 const token=document.getElementById('token').value;
@@ -41,7 +41,7 @@ for(const d of list.devices){
 const tr=document.createElement('tr');
 for(const value of [d.id,(d.manufacturer+' '+d.model).trim()||'Неизвестно',d.vpn_ip,d.days_remaining+' дней',d.enabled&&d.days_remaining>0?'Активна':'Нет доступа']){
 const td=document.createElement('td');td.textContent=value;tr.append(td)}
-tbody.append(tr)}
+const actions=document.createElement('td');const button=document.createElement('button');button.textContent=d.enabled?'Заблокировать':'Разблокировать';button.onclick=async()=>{if(!confirm('Изменить доступ устройства '+d.id+'?'))return;button.disabled=true;try{const response=await fetch('/admin/device/access',{method:'POST',headers:{Authorization:'Bearer '+document.getElementById('token').value,'Content-Type':'application/json'},body:JSON.stringify({device_id:d.id,enabled:!d.enabled})});if(!response.ok)throw Error('HTTP '+response.status);document.getElementById('load').click()}catch(e){status.textContent='Ошибка: '+e.message;button.disabled=false}};actions.append(button);tr.append(actions);tbody.append(tr)}
 status.textContent='Данные обновлены';
 }catch(e){status.textContent=e.message}
 };
