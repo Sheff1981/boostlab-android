@@ -631,12 +631,15 @@ private fun BoostPage(
                     when (state.routeRecommendation) {
                         "BOOST" -> "BOOST даёт лучший маршрут"
                         "DIRECT" -> "DIRECT уже быстрее — VPN не нужен"
+                        "MANUAL_BETTER" -> "Выбранный вручную Gateway улучшает маршрут"
+                        "MANUAL_WORSE" -> "Выбранный Gateway хуже или не лучше DIRECT"
                         "GATEWAY_ONLY" -> "Пока оцениваем только доступ до Gateway"
-                        else -> "Выбери игру и запусти авто-проверку маршрута"
+                        else -> "Выбери игру и запусти проверку маршрута"
                     },
                     color = when (state.routeRecommendation) {
-                        "BOOST" -> HubMint
+                        "BOOST", "MANUAL_BETTER" -> HubMint
                         "DIRECT" -> HubCyan
+                        "MANUAL_WORSE" -> HubError
                         else -> HubMuted
                     },
                     fontSize = 12.sp,
