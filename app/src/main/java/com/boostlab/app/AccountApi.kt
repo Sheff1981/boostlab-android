@@ -20,6 +20,26 @@ internal object AccountApi {
         }
     }
 
+    fun linkDevice(sessionToken: String, deviceId: String, linkToken: String): JSONObject {
+        val connection = URL(BASE_URL + "/v1/accounts/devices/link").openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
+        connection.doOutput = true
+        connection.setRequestProperty("Authorization", "Bearer " + sessionToken)
+        connection.setRequestProperty("Content-Type", "application/json")
+        try {
+            connection.outputStream.use {
+                it.write(JSONObject().put("device_id", deviceId).put("link_token", linkToken)
+                    .toString().toByteArray(Charsets.UTF_8))
+            }
+            if (connection.responseCode != 200) throw IllegalStateException("Привязка устройства не выполнена (HTTP ${connection.responseCode})")
+            return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     fun request(path: String, email: String, password: String): JSONObject {
         val connection = URL(BASE_URL + path).openConnection() as HttpURLConnection
         connection.requestMethod = "POST"
