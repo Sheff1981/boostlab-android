@@ -19,8 +19,12 @@ foreach ($file in @($base64, $credentials, $keystore)) {
 $raw = [IO.File]::ReadAllText((Resolve-Path $base64)).Trim()
 $decoded = [Convert]::FromBase64String($raw)
 $actual = [IO.File]::ReadAllBytes((Resolve-Path $keystore))
-if (-not [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($decoded)).Equals(
-    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($actual)))) {
+$sha = [Security.Cryptography.SHA256]::Create()
+try {
+    $decodedHash = [BitConverter]::ToString($sha.ComputeHash($decoded))
+    $actualHash = [BitConverter]::ToString($sha.ComputeHash($actual))
+} finally { $sha.Dispose() }
+if ($decodedHash -ne $actualHash) {
     throw "Keystore and Base64 file do not match."
 }
 $vars = @{}
