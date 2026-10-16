@@ -18,6 +18,40 @@ import java.net.URL
 internal object DeviceEnrollment {
     data class Result(val config: Config, val deviceId: String, val linkToken: String)
 
+    fun activate(apiUrl: String, sessionToken: String, identity: KeyPair): Result {
+        require(apiUrl.startsWith("https://"))
+        val connection = URL(apiUrl.trimEnd('/') + "/v1/devices/activate").openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
+        connection.doOutput = true
+        connection.setRequestProperty("Authorization", "Bearer " + sessionToken)
+        connection.setRequestProperty("Content-Type", "application/json")
+        try {
+            connection.outputStream.use { stream ->
+                stream.write(JSONObject().put("public_key", identity.publicKey.toBase64())
+                    .put("manufacturer", android.os.Build.MANUFACTURER)
+                    .put("model", android.os.Build.MODEL)
+                    .put("android_version", android.os.Build.VERSION.RELEASE)
+                    .toString().toByteArray(Charsets.UTF_8))
+            }
+            if (connection.responseCode != 200) error("VPN activation HTTP ${connection.responseCode}")
+            val response = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            val iface = Interface.Builder().setKeyPair(identity)
+                .addAddress(InetNetwork.parse(response.getString("address")))
+                .addDnsServer(java.net.InetAddress.getByName("1.1.1.1")).build()
+            val peer = Peer.Builder()
+                .parsePublicKey(response.getString("gateway_public_key"))
+                .setEndpoint(InetEndpoint.parse(response.getString("gateway_endpoint")))
+                .addAllowedIp(InetNetwork.parse("0.0.0.0/0"))
+                .setPersistentKeepalive(25).build()
+            return Result(Config.Builder().setInterface(iface).addPeer(peer).build(),
+                response.getString("device_id"), "")
+        } finally {
+            connection.disconnect()
+        }
+    }
+
     fun enroll(apiUrl: String, token: String): Result {
         require(apiUrl.startsWith("https://")) { "HTTPS is required" }
         require(token.length >= 32) { "Invalid enrollment token" }
