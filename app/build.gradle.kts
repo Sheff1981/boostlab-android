@@ -11,8 +11,9 @@ android {
         applicationId = "com.boostlab.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        // CI run numbers increase on each build, enabling in-place upgrades with the same signing key.
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1)
+        versionName = "0.1.0-dev." + versionCode
     }
     buildFeatures { compose = true }
     compileOptions {
@@ -23,6 +24,7 @@ android {
 }
 
 dependencies {
+    implementation("com.wireguard.android:tunnel:1.0.20230706")
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.compose.material3:material3")

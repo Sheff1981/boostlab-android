@@ -8,6 +8,8 @@ import secrets
 import sqlite3
 import subprocess
 import threading
+import time
+from accounts import setup_accounts, register, login, account_for_token
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from pathlib import Path
@@ -27,10 +29,28 @@ def database():
     conn = sqlite3.connect(DB)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("""CREATE TABLE IF NOT EXISTS enrollments(
-        token_hash TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0)""")
+        token_hash TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0,
+        expires_at INTEGER NOT NULL DEFAULT 0)""")
     conn.execute("""CREATE TABLE IF NOT EXISTS devices(
         device_id TEXT PRIMARY KEY, public_key TEXT UNIQUE NOT NULL,
         ip TEXT UNIQUE NOT NULL, enabled INTEGER NOT NULL DEFAULT 1)""")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(enrollments)")}
+    if "expires_at" not in cols:
+        conn.execute("ALTER TABLE enrollments ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(devices)")}
+    for name, definition in (
+        ("created_at", "INTEGER NOT NULL DEFAULT 0"),
+        ("expires_at", "INTEGER NOT NULL DEFAULT 0"),
+        ("manufacturer", "TEXT NOT NULL DEFAULT ''"),
+        ("model", "TEXT NOT NULL DEFAULT ''"),
+        ("android_version", "TEXT NOT NULL DEFAULT ''"),
+        ("account_id", "TEXT"),
+        ("link_token_hash", "TEXT"),
+        ("link_token_expires_at", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE devices ADD COLUMN {name} {definition}")
+    setup_accounts(conn)
     conn.commit()
     return conn
 
@@ -48,6 +68,16 @@ def validate_public_key(value):
 
 def hash_token(token):
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def reconcile_expired_peers():
+    """Remove expired or blocked peers; safe to invoke periodically from systemd timer."""
+    now = int(time.time())
+    with LOCK, database() as conn:
+        rows = conn.execute("SELECT public_key FROM devices WHERE enabled=0 OR expires_at<=?", (now,)).fetchall()
+    for (public_key,) in rows:
+        subprocess.run(["wg", "set", WG_INTERFACE, "peer", public_key, "remove"],
+                       check=True, capture_output=True, timeout=10)
 
 
 def add_peer(public_key, address):
@@ -79,23 +109,241 @@ class Handler(BaseHTTPRequestHandler):
         return bool(ADMIN_TOKEN) and hmac.compare_digest(supplied, "Bearer " + ADMIN_TOKEN)
 
     def do_GET(self):
+        if self.path == "/v1/accounts/me":
+            authorization = self.headers.get("Authorization", "")
+            token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+            with LOCK, database() as conn:
+                account = account_for_token(conn, token)
+            if account is None:
+                self.respond(401, {"error": "unauthorized"})
+            else:
+                self.respond(200, account)
+            return
+        if self.path == "/admin":
+            html = Path(__file__).with_name("admin.html").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(html)))
+            self.end_headers()
+            self.wfile.write(html)
+            return
+        if self.path == "/v1/accounts/devices":
+            authorization = self.headers.get("Authorization", "")
+            token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+            with LOCK, database() as conn:
+                account = account_for_token(conn, token)
+                if account is None:
+                    self.respond(401, {"error": "unauthorized"})
+                    return
+                rows = conn.execute("SELECT device_id, manufacturer, model, expires_at, enabled FROM devices WHERE account_id=?",
+                                    (account["account_id"],)).fetchall()
+            now = int(time.time())
+            self.respond(200, {"devices": [
+                {"id": row[0], "manufacturer": row[1], "model": row[2],
+                 "days_remaining": max(0, (row[3]-now+86399)//86400), "enabled": bool(row[4])}
+                for row in rows]})
+            return
+        if self.path == "/admin/summary":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            with LOCK, database() as conn:
+                total = conn.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
+                enabled = conn.execute("SELECT COUNT(*) FROM devices WHERE enabled=1 AND expires_at>?", (int(time.time()),)).fetchone()[0]
+            self.respond(200, {"total_devices": total, "enabled_devices": enabled})
+            return
+        if self.path == "/admin/devices":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            with LOCK, database() as conn:
+                rows = conn.execute("SELECT device_id, ip, enabled, expires_at, manufacturer, model, android_version FROM devices ORDER BY rowid DESC LIMIT 500").fetchall()
+            self.respond(200, {"devices": [{"id": row[0], "vpn_ip": row[1], "enabled": bool(row[2]), "expires_at": row[3], "days_remaining": max(0, (row[3]-int(time.time())+86399)//86400), "manufacturer": row[4], "model": row[5], "android_version": row[6]} for row in rows]})
+            return
         if self.path == "/health":
             self.respond(200, {"status": "ok"})
         else:
             self.respond(404, {"error": "not_found"})
 
     def do_POST(self):
+        if self.path in ("/v1/accounts/register", "/v1/accounts/login"):
+            try:
+                payload = self.body()
+                with LOCK, database() as conn:
+                    if self.path.endswith("/register"):
+                        account_id = register(conn, payload.get("email"), payload.get("password"))
+                        self.respond(201, {"account_id": account_id})
+                    else:
+                        result = login(conn, payload.get("email"), payload.get("password"))
+                        self.respond(200, result) if result else self.respond(401, {"error": "invalid_credentials"})
+            except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            except sqlite3.IntegrityError:
+                self.respond(409, {"error": "account_exists"})
+            return
+
+        if self.path == "/v1/accounts/logout":
+            authorization = self.headers.get("Authorization", "")
+            token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+            with LOCK, database() as conn:
+                account = account_for_token(conn, token)
+                if account:
+                    conn.execute("UPDATE accounts SET session_hash=NULL, session_expires_at=0 WHERE account_id=?",
+                                 (account["account_id"],))
+                    conn.commit()
+            self.respond(200, {"ok": True})
+            return
+
+        if self.path == "/v1/accounts/devices/link":
+            try:
+                payload = self.body()
+                authorization = self.headers.get("Authorization", "")
+                token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+                device_id = payload["device_id"]
+                proof = payload["link_token"]
+                if not isinstance(device_id, str) or not isinstance(proof, str) or len(proof) < 32:
+                    raise ValueError("invalid_link_proof")
+                with LOCK, database() as conn:
+                    account = account_for_token(conn, token)
+                    if account is None:
+                        self.respond(401, {"error": "unauthorized"})
+                        return
+                    row = conn.execute("SELECT account_id, link_token_hash, link_token_expires_at FROM devices WHERE device_id=?",
+                                       (device_id,)).fetchone()
+                    if row is None:
+                        self.respond(404, {"error": "device_not_found"})
+                        return
+                    if row[0] is not None and row[0] != account["account_id"]:
+                        self.respond(409, {"error": "device_already_linked"})
+                        return
+                    if not row[1] or row[2] <= int(time.time()) or not hmac.compare_digest(row[1], hash_token(proof)):
+                        self.respond(403, {"error": "invalid_link_proof"})
+                        return
+                    conn.execute("UPDATE devices SET account_id=?, link_token_hash=NULL, link_token_expires_at=0 WHERE device_id=?",
+                                 (account["account_id"], device_id))
+                    conn.commit()
+                self.respond(200, {"device_id": device_id, "account_id": account["account_id"]})
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            return
+
+        if self.path == "/v1/devices/activate":
+            try:
+                payload = self.body()
+                authorization = self.headers.get("Authorization", "")
+                token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+                public_key = payload["public_key"]
+                if not validate_public_key(public_key):
+                    raise ValueError("invalid_public_key")
+                if not PUBLIC_ENDPOINT or not SERVER_PUBLIC_KEY:
+                    self.respond(503, {"error": "gateway_unconfigured"})
+                    return
+                with LOCK, database() as conn:
+                    account = account_for_token(conn, token)
+                    if account is None:
+                        self.respond(401, {"error": "unauthorized"})
+                        return
+                    existing = conn.execute("SELECT device_id, ip, expires_at, enabled FROM devices WHERE public_key=? AND account_id=?",
+                                            (public_key, account["account_id"])).fetchone()
+                    if existing:
+                        if not existing[3] or existing[2] <= int(time.time()):
+                            self.respond(403, {"error": "subscription_inactive"})
+                            return
+                        add_peer(public_key, existing[1])
+                        device_id, address, expires = existing[:3]
+                    else:
+                        if conn.execute("SELECT 1 FROM devices WHERE public_key=?", (public_key,)).fetchone():
+                            self.respond(409, {"error": "key_already_registered"})
+                            return
+                        allocated = {r[0] for r in conn.execute("SELECT ip FROM devices")}
+                        address = next((f"10.77.{n // 253}.{n % 253 + 2}" for n in range(1, 60000)
+                                        if f"10.77.{n // 253}.{n % 253 + 2}" not in allocated and n // 253 <= 255), None)
+                        if address is None:
+                            self.respond(503, {"error": "pool_exhausted"})
+                            return
+                        device_id = secrets.token_hex(16)
+                        expires = int(time.time()) + 30 * 86400
+                        add_peer(public_key, address)
+                        conn.execute("""INSERT INTO devices(device_id, public_key, ip, enabled, created_at, expires_at,
+                            manufacturer, model, android_version, account_id)
+                            VALUES(?,?,?,1,?,?,?,?,?,?)""",
+                            (device_id, public_key, address, int(time.time()), expires,
+                             str(payload.get("manufacturer", ""))[:80], str(payload.get("model", ""))[:80],
+                             str(payload.get("android_version", ""))[:30], account["account_id"]))
+                        conn.commit()
+                self.respond(200, {"device_id": device_id, "address": address + "/32",
+                                   "gateway_endpoint": PUBLIC_ENDPOINT, "gateway_public_key": SERVER_PUBLIC_KEY,
+                                   "expires_at": expires})
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            except (subprocess.SubprocessError, OSError, sqlite3.IntegrityError):
+                self.respond(503, {"error": "provisioning_failed"})
+            return
+
         if self.path == "/admin/enrollment":
             if not self.authorized():
                 self.respond(403, {"error": "forbidden"})
                 return
             token = secrets.token_urlsafe(32)
             with LOCK, database() as conn:
-                conn.execute("INSERT INTO enrollments(token_hash) VALUES(?)", (hash_token(token),))
+                conn.execute("INSERT INTO enrollments(token_hash, expires_at) VALUES(?,?)",
+                             (hash_token(token), int(time.time()) + 600))
                 conn.commit()
             self.respond(201, {"enrollment_token": token})
             return
 
+        if self.path == "/admin/device/access":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            try:
+                payload = self.body()
+                device_id, enabled = payload["device_id"], payload["enabled"]
+                if not isinstance(device_id, str) or type(enabled) is not bool:
+                    raise ValueError("invalid_input")
+                with LOCK, database() as conn:
+                    row = conn.execute("SELECT public_key, ip, expires_at FROM devices WHERE device_id=?", (device_id,)).fetchone()
+                    if row is None:
+                        self.respond(404, {"error": "not_found"})
+                        return
+                    if enabled and row[2] <= int(time.time()):
+                        self.respond(409, {"error": "subscription_expired"})
+                        return
+                    if enabled:
+                        add_peer(row[0], row[1])
+                    else:
+                        subprocess.run(["wg", "set", WG_INTERFACE, "peer", row[0], "remove"],
+                                       check=True, capture_output=True, timeout=10)
+                    conn.execute("UPDATE devices SET enabled=? WHERE device_id=?", (int(enabled), device_id))
+                    conn.commit()
+                self.respond(200, {"device_id": device_id, "enabled": enabled})
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            except (subprocess.SubprocessError, OSError):
+                self.respond(503, {"error": "wireguard_failed"})
+            return
+        if self.path == "/admin/subscription":
+            if not self.authorized():
+                self.respond(403, {"error": "forbidden"})
+                return
+            try:
+                payload = self.body()
+                device_id, days = payload["device_id"], payload["days"]
+                if not isinstance(device_id, str) or type(days) is not int or not 1 <= days <= 365:
+                    raise ValueError("Invalid input")
+                with LOCK, database() as conn:
+                    row = conn.execute("SELECT expires_at FROM devices WHERE device_id=?", (device_id,)).fetchone()
+                    if row is None:
+                        self.respond(404, {"error": "not_found"})
+                        return
+                    expires = max(int(time.time()), row[0]) + days*86400
+                    conn.execute("UPDATE devices SET expires_at=? WHERE device_id=?", (expires, device_id))
+                    conn.commit()
+                self.respond(200, {"device_id": device_id, "expires_at": expires})
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            return
         if self.path != "/v1/devices/enroll":
             self.respond(404, {"error": "not_found"})
             return
@@ -110,8 +358,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(503, {"error": "gateway_unconfigured"})
                 return
             with LOCK, database() as conn:
-                row = conn.execute("SELECT used FROM enrollments WHERE token_hash=?", (hash_token(token),)).fetchone()
-                if row is None or row[0]:
+                row = conn.execute("SELECT used, expires_at FROM enrollments WHERE token_hash=?", (hash_token(token),)).fetchone()
+                if row is None or row[0] or row[1] <= int(time.time()):
                     self.respond(403, {"error": "invalid_enrollment"})
                     return
                 allocated = {row[0] for row in conn.execute("SELECT ip FROM devices")}
@@ -122,13 +370,17 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(503, {"error": "pool_exhausted"})
                     return
                 device_id = secrets.token_hex(16)
+                link_token = secrets.token_urlsafe(32)
                 # Configure peer before committing enrollment; a failure leaves token usable.
                 add_peer(public_key, address)
-                conn.execute("INSERT INTO devices(device_id, public_key, ip) VALUES(?,?,?)",
-                             (device_id, public_key, address))
+                conn.execute("""INSERT INTO devices(device_id, public_key, ip, created_at, expires_at,
+                    manufacturer, model, android_version, link_token_hash, link_token_expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    (device_id, public_key, address, int(time.time()), int(time.time())+30*86400,
+                     str(body.get("manufacturer", ""))[:80], str(body.get("model", ""))[:80],
+                     str(body.get("android_version", ""))[:30], hash_token(link_token), int(time.time()) + 86400))
                 conn.execute("UPDATE enrollments SET used=1 WHERE token_hash=?", (hash_token(token),))
                 conn.commit()
-            self.respond(201, {"device_id": device_id, "address": address + "/32",
+            self.respond(201, {"device_id": device_id, "link_token": link_token, "trial_expires_at": int(time.time()) + 30*86400, "address": address + "/32",
                                "gateway_endpoint": PUBLIC_ENDPOINT, "gateway_public_key": SERVER_PUBLIC_KEY})
         except (ValueError, TypeError, json.JSONDecodeError):
             self.respond(400, {"error": "invalid_request"})
@@ -141,4 +393,7 @@ if __name__ == "__main__":
         raise SystemExit("Set a random BOOSTLAB_ADMIN_TOKEN of at least 32 characters")
     with database():
         pass
+    if "--reconcile" in __import__("sys").argv:
+        reconcile_expired_peers()
+        raise SystemExit(0)
     ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
