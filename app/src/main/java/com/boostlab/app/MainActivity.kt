@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
+import com.wireguard.crypto.KeyPair
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ private val cyan = Color(0xFF55EAE6)
 class MainActivity : ComponentActivity() {
     private val backend by lazy { GoBackend(applicationContext) }
     private var importedConfig: Config? = null
+    private var selectedPackage: String? = null
     private var updateStatus: (String) -> Unit = {}
     private val tunnel = object : Tunnel {
         override fun getName(): String = "boostlab"
@@ -64,12 +66,33 @@ class MainActivity : ComponentActivity() {
         }.start()
     }
     private fun requestConnect() {
-        if (importedConfig == null) {
-            updateStatus("Автоматическая настройка VPN пока недоступна. Импорт файла не требуется.")
-            return
-        }
+        if (importedConfig == null) return
         val intent = VpnService.prepare(this)
         if (intent != null) vpnPermission.launch(intent) else connect()
+    }
+
+    private fun activateAndConnect(sessionToken: String, packageNameToBoost: String) {
+        updateStatus("Регистрация устройства на сервере…")
+        Thread {
+            try {
+                val prefs = getSharedPreferences("boostlab_vpn", MODE_PRIVATE)
+                val privateKey = prefs.getString("private_key", null)
+                val identity = if (privateKey == null) KeyPair() else
+                    KeyPair(com.wireguard.crypto.Key.fromBase64(privateKey))
+                val result = DeviceEnrollment.activate(AccountApi.BASE_URL, sessionToken, identity)
+                if (privateKey == null) {
+                    prefs.edit().putString("private_key", identity.privateKey.toBase64()).apply()
+                }
+                importedConfig = result.config
+                selectedPackage = packageNameToBoost
+                runOnUiThread {
+                    updateStatus("VPN настроен. Запрашиваем разрешение Android…")
+                    requestConnect()
+                }
+            } catch (e: Exception) {
+                runOnUiThread { updateStatus("Ошибка активации: ${e.message}") }
+            }
+        }.start()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -189,14 +212,20 @@ class MainActivity : ComponentActivity() {
                             Spacer(Modifier.height(12.dp))
                             Button(
                                 enabled = selected != null,
-                                onClick = { requestConnect() },
+                                onClick = {
+                                    val token = sessionToken
+                                    val pkg = selected
+                                    if (token == null || pkg == null) {
+                                        status = "Войди в аккаунт и выбери игру"
+                                    } else activateAndConnect(token, pkg)
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("BOOST") }
                             OutlinedButton(
                                 onClick = { disconnect() },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("Отключить VPN") }
-                            Text("Тестовая версия: автоматическое VPN-подключение пока недоступно. Запуск игры до проверки соединения заблокирован.", color = Color.LightGray)
+                            Text("Подключение через WireGuard. Проверка handshake и автоматический запуск игры ещё в разработке.", color = Color.LightGray)
                         }
                     }
                     Spacer(Modifier.height(18.dp))
