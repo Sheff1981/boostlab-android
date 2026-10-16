@@ -137,6 +137,29 @@ class ControlTests(unittest.TestCase):
         status, _ = self.request("/v1/accounts/devices")
         self.assertEqual(status, 401)
 
+    def test_profile_and_logout(self):
+        self.request("/v1/accounts/register", {"email": "profile@example.com", "password": "SecurePass123"})
+        _, session = self.request("/v1/accounts/login", {"email": "profile@example.com", "password": "SecurePass123"})
+        token = session["session_token"]
+        from urllib.error import HTTPError
+        def authenticated(path, method="GET"):
+            req = Request(self.url + path, data=b"{}" if method == "POST" else None,
+                          headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"},
+                          method=method)
+            try:
+                with urlopen(req, timeout=3) as response:
+                    return response.status, json.load(response)
+            except HTTPError as error:
+                return error.code, json.load(error)
+        status, profile = authenticated("/v1/accounts/me")
+        self.assertEqual(status, 200)
+        self.assertEqual(profile["email"], "profile@example.com")
+        status, result = authenticated("/v1/accounts/logout", "POST")
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        status, _ = authenticated("/v1/accounts/me")
+        self.assertEqual(status, 401)
+
     def test_expired_token_rejected(self):
         status, token_data = self.request("/admin/enrollment", {}, auth=True)
         with api.database() as conn:
