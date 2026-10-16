@@ -228,6 +228,59 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(400, {"error": "invalid_request"})
             return
 
+        if self.path == "/v1/devices/activate":
+            try:
+                payload = self.body()
+                authorization = self.headers.get("Authorization", "")
+                token = authorization.removeprefix("Bearer ") if authorization.startswith("Bearer ") else ""
+                public_key = payload["public_key"]
+                if not validate_public_key(public_key):
+                    raise ValueError("invalid_public_key")
+                if not PUBLIC_ENDPOINT or not SERVER_PUBLIC_KEY:
+                    self.respond(503, {"error": "gateway_unconfigured"})
+                    return
+                with LOCK, database() as conn:
+                    account = account_for_token(conn, token)
+                    if account is None:
+                        self.respond(401, {"error": "unauthorized"})
+                        return
+                    existing = conn.execute("SELECT device_id, ip, expires_at, enabled FROM devices WHERE public_key=? AND account_id=?",
+                                            (public_key, account["account_id"])).fetchone()
+                    if existing:
+                        if not existing[3] or existing[2] <= int(time.time()):
+                            self.respond(403, {"error": "subscription_inactive"})
+                            return
+                        add_peer(public_key, existing[1])
+                        device_id, address, expires = existing[:3]
+                    else:
+                        if conn.execute("SELECT 1 FROM devices WHERE public_key=?", (public_key,)).fetchone():
+                            self.respond(409, {"error": "key_already_registered"})
+                            return
+                        allocated = {r[0] for r in conn.execute("SELECT ip FROM devices")}
+                        address = next((f"10.77.{n // 253}.{n % 253 + 2}" for n in range(1, 60000)
+                                        if f"10.77.{n // 253}.{n % 253 + 2}" not in allocated and n // 253 <= 255), None)
+                        if address is None:
+                            self.respond(503, {"error": "pool_exhausted"})
+                            return
+                        device_id = secrets.token_hex(16)
+                        expires = int(time.time()) + 30 * 86400
+                        add_peer(public_key, address)
+                        conn.execute("""INSERT INTO devices(device_id, public_key, ip, enabled, created_at, expires_at,
+                            manufacturer, model, android_version, account_id)
+                            VALUES(?,?,?,1,?,?,?,?,?,?)""",
+                            (device_id, public_key, address, int(time.time()), expires,
+                             str(payload.get("manufacturer", ""))[:80], str(payload.get("model", ""))[:80],
+                             str(payload.get("android_version", ""))[:30], account["account_id"]))
+                        conn.commit()
+                self.respond(200, {"device_id": device_id, "address": address + "/32",
+                                   "gateway_endpoint": PUBLIC_ENDPOINT, "gateway_public_key": SERVER_PUBLIC_KEY,
+                                   "expires_at": expires})
+            except (KeyError, ValueError, TypeError, json.JSONDecodeError):
+                self.respond(400, {"error": "invalid_request"})
+            except (subprocess.SubprocessError, OSError, sqlite3.IntegrityError):
+                self.respond(503, {"error": "provisioning_failed"})
+            return
+
         if self.path == "/admin/enrollment":
             if not self.authorized():
                 self.respond(403, {"error": "forbidden"})
