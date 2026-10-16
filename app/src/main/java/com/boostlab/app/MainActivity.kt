@@ -7,7 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
-import java.io.ByteArrayInputStream
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -35,19 +34,6 @@ class MainActivity : ComponentActivity() {
         override fun getName(): String = "boostlab"
         override fun onStateChange(newState: Tunnel.State) {
             runOnUiThread { updateStatus("Туннель: $newState") }
-        }
-    }
-    private val importConfig = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            try {
-                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: error("Не удалось открыть конфигурацию")
-                importedConfig = Config.parse(ByteArrayInputStream(bytes))
-                bytes.fill(0)
-                updateStatus("Конфигурация загружена. Нажми BOOST")
-            } catch (e: Exception) {
-                updateStatus("Ошибка конфигурации: ${e.message}")
-            }
         }
     }
     private val vpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -210,7 +196,7 @@ class MainActivity : ComponentActivity() {
                                 onClick = { disconnect() },
                                 modifier = Modifier.fillMaxWidth()
                             ) { Text("Отключить VPN") }
-                            Text("Тестовый режим: импорт WireGuard-конфигурации. Запуск игры до проверки handshake заблокирован.", color = Color.LightGray)
+                            Text("Тестовая версия: автоматическое VPN-подключение пока недоступно. Запуск игры до проверки соединения заблокирован.", color = Color.LightGray)
                         }
                     }
                     Spacer(Modifier.height(18.dp))
